@@ -1,0 +1,14 @@
+name: dispatch
+
+replicaCount: 2
+
+image:
+  repository: <ECR>/dispatch
+  tag: latest
+
+service:
+  port: 8080
+
+env:
+  - name: RABBITMQ_HOST
+    value: rabbitmq

@@ -1,0 +1,14 @@
+name: cart
+
+replicaCount: 2
+
+image:
+  repository: <ECR>/cart
+  tag: latest
+
+service:
+  port: 8080
+
+env:
+  - name: REDIS_HOST
+    value: redis

@@ -1,0 +1,14 @@
+name: shipping
+
+replicaCount: 2
+
+image:
+  repository: <ECR>/shipping
+  tag: latest
+
+service:
+  port: 8080
+
+env:
+  - name: MYSQL_HOST
+    value: mysql

@@ -1,0 +1,14 @@
+name: payment
+
+replicaCount: 2
+
+image:
+  repository: <ECR>/payment
+  tag: latest
+
+service:
+  port: 8080
+
+env:
+  - name: RABBITMQ_HOST
+    value: rabbitmq

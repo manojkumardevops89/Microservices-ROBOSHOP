@@ -1,0 +1,12 @@
+name: frontend
+
+replicaCount: 2
+
+image:
+  repository: <ECR>/frontend
+  tag: latest
+
+service:
+  port: 80
+
+env: []

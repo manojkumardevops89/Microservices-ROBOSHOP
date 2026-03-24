@@ -1,0 +1,14 @@
+name: user
+
+replicaCount: 2
+
+image:
+  repository: <ECR>/user
+  tag: latest
+
+service:
+  port: 8080
+
+env:
+  - name: MONGO_HOST
+    value: mongodb

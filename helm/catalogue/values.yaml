@@ -1,0 +1,14 @@
+name: catalogue
+
+replicaCount: 2
+
+image:
+  repository: <ECR>/catalogue
+  tag: latest
+
+service:
+  port: 8080
+
+env:
+  - name: MONGO_HOST
+    value: mongodb
