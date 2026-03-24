@@ -1,10 +1,6 @@
 pipeline {
     agent any
 
-    tools {
-        sonarQube 'SonarScanner'
-    }
-
     environment {
         AWS_REGION   = 'us-east-1'
         ECR_REGISTRY = credentials('ecr-registry')
@@ -26,7 +22,7 @@ pipeline {
             }
         }
 
-        //  SONARQUBE
+        // ✅ SONARQUBE (FIXED)
         stage('SonarQube Scan') {
             steps {
                 withSonarQubeEnv('SonarQube-Server') {
@@ -96,7 +92,7 @@ pipeline {
             }
         }
 
-        //  ECR REPOS 
+        // ✅ ECR (NO LOOP)
         stage('Create ECR Repositories') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
@@ -153,7 +149,7 @@ pipeline {
             }
         }
 
-        // ✅ DEPLOY 
+        // ✅ DEPLOY (NO LOOP)
         stage('Deploy to EKS') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
