@@ -1,6 +1,10 @@
 pipeline {
     agent any
 
+    tools {
+        sonarQube 'SonarScanner'
+    }
+
     environment {
         AWS_REGION   = 'us-east-1'
         ECR_REGISTRY = credentials('ecr-registry')
@@ -9,7 +13,7 @@ pipeline {
         CLUSTER_NAME = 'roboshop-eks-cluster'
         NAMESPACE    = 'roboshop'
         APP_URL      = ''
-        SONAR_AUTH_TOKEN = credentials('sonar-token')   // 🔥 Added
+        SONAR_AUTH_TOKEN = credentials('sonar-token')
     }
 
     stages {
@@ -22,7 +26,7 @@ pipeline {
             }
         }
 
-        // ✅ FIXED SONARQUBE STAGE
+        //  SONARQUBE
         stage('SonarQube Scan') {
             steps {
                 withSonarQubeEnv('SonarQube-Server') {
@@ -38,7 +42,6 @@ pipeline {
             }
         }
 
-        // 🔥 OPTIONAL (only works if webhook configured)
         stage('Quality Gate') {
             steps {
                 timeout(time: 5, unit: 'MINUTES') {
@@ -47,6 +50,7 @@ pipeline {
             }
         }
 
+        // TERRAFORM
         stage('Terraform Init') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
@@ -80,54 +84,44 @@ pipeline {
             }
         }
 
-        stage('Cart Service') {
+        // BUILD
+        stage('Build Services') {
             steps {
-                sh 'cd services/cart && npm install'
+                sh '''
+                    cd services/cart && npm install
+                    cd ../catalogue && npm install
+                    cd ../user && npm install
+                    cd ../shipping && mvn clean package
+                '''
             }
         }
 
-        stage('Catalogue Service') {
-            steps {
-                sh 'cd services/catalogue && npm install'
-            }
-        }
-
-        stage('User Service') {
-            steps {
-                sh 'cd services/user && npm install'
-            }
-        }
-
-        stage('Shipping Service') {
-            steps {
-                sh 'cd services/shipping && mvn clean package'
-            }
-        }
-
-        stage('Frontend Service') {
-            steps {
-                sh 'echo "Frontend - no npm needed"'
-            }
-        }
-
+        //  ECR REPOS 
         stage('Create ECR Repositories') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
                     sh """
-                        for svc in frontend cart user catalogue shipping; do
-                            aws ecr describe-repositories \
-                                --repository-names ${ECR_REPO}/\$svc \
-                                --region ${AWS_REGION} 2>/dev/null || \
-                            aws ecr create-repository \
-                                --repository-name ${ECR_REPO}/\$svc \
-                                --region ${AWS_REGION}
-                        done
+                        aws ecr describe-repositories --repository-names ${ECR_REPO}/cart --region ${AWS_REGION} 2>/dev/null || \
+                        aws ecr create-repository --repository-name ${ECR_REPO}/cart --region ${AWS_REGION}
+
+                        aws ecr describe-repositories --repository-names ${ECR_REPO}/catalogue --region ${AWS_REGION} 2>/dev/null || \
+                        aws ecr create-repository --repository-name ${ECR_REPO}/catalogue --region ${AWS_REGION}
+
+                        aws ecr describe-repositories --repository-names ${ECR_REPO}/user --region ${AWS_REGION} 2>/dev/null || \
+                        aws ecr create-repository --repository-name ${ECR_REPO}/user --region ${AWS_REGION}
+
+                        aws ecr describe-repositories --repository-names ${ECR_REPO}/shipping --region ${AWS_REGION} 2>/dev/null || \
+                        aws ecr create-repository --repository-name ${ECR_REPO}/shipping --region ${AWS_REGION}
+
+                        aws ecr describe-repositories --repository-names ${ECR_REPO}/frontend --region ${AWS_REGION} 2>/dev/null || \
+                        aws ecr create-repository --repository-name ${ECR_REPO}/frontend --region ${AWS_REGION}
                     """
                 }
             }
         }
 
+        // DOCKER BUILD
         stage('Docker Build') {
             steps {
                 sh """
@@ -140,6 +134,7 @@ pipeline {
             }
         }
 
+        // PUSH
         stage('Push Images') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
@@ -148,14 +143,17 @@ pipeline {
                         aws ecr get-login-password --region ${AWS_REGION} \
                         | docker login --username AWS --password-stdin ${ECR_REGISTRY}
 
-                        for svc in cart catalogue user shipping frontend; do
-                            docker push ${ECR_REGISTRY}/${ECR_REPO}/\$svc:${IMAGE_TAG}
-                        done
+                        docker push ${ECR_REGISTRY}/${ECR_REPO}/cart:${IMAGE_TAG}
+                        docker push ${ECR_REGISTRY}/${ECR_REPO}/catalogue:${IMAGE_TAG}
+                        docker push ${ECR_REGISTRY}/${ECR_REPO}/user:${IMAGE_TAG}
+                        docker push ${ECR_REGISTRY}/${ECR_REPO}/shipping:${IMAGE_TAG}
+                        docker push ${ECR_REGISTRY}/${ECR_REPO}/frontend:${IMAGE_TAG}
                     """
                 }
             }
         }
 
+        // ✅ DEPLOY 
         stage('Deploy to EKS') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
@@ -163,12 +161,30 @@ pipeline {
                     sh """
                         aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}
 
-                        for svc in cart catalogue user shipping frontend; do
-                            helm upgrade --install \$svc helm/\$svc \
+                        helm upgrade --install cart helm/cart \
                             --namespace ${NAMESPACE} --create-namespace \
-                            --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/\$svc \
+                            --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/cart \
                             --set image.tag=${IMAGE_TAG}
-                        done
+
+                        helm upgrade --install catalogue helm/catalogue \
+                            --namespace ${NAMESPACE} \
+                            --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/catalogue \
+                            --set image.tag=${IMAGE_TAG}
+
+                        helm upgrade --install user helm/user \
+                            --namespace ${NAMESPACE} \
+                            --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/user \
+                            --set image.tag=${IMAGE_TAG}
+
+                        helm upgrade --install shipping helm/shipping \
+                            --namespace ${NAMESPACE} \
+                            --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/shipping \
+                            --set image.tag=${IMAGE_TAG}
+
+                        helm upgrade --install frontend helm/frontend \
+                            --namespace ${NAMESPACE} \
+                            --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/frontend \
+                            --set image.tag=${IMAGE_TAG}
                     """
                 }
             }
