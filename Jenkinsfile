@@ -17,7 +17,7 @@ pipeline {
             steps {
                 git branch: 'main',
                     credentialsId: 'github-creds',
-                    url: 'https://github.com/manojkumardevops89/roboshop-documentation.git'
+                    url: 'https://github.com/manojkumardevops89/Microservices-ROBOSHOP.git'
             }
         }
 
