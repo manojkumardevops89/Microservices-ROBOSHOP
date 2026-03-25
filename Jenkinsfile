@@ -1,21 +1,21 @@
 pipeline {
     agent any
+
     environment {
         PATH             = "/opt/sonar-scanner/bin:${env.PATH}"
         AWS_REGION       = 'us-east-1'
         ECR_REGISTRY     = credentials('ecr-registry')
         ECR_REPO         = 'roboshop'
         IMAGE_TAG        = "${BUILD_NUMBER}"
-        CLUSTER_NAME     = 'roboshop-eks-cluster'
+        CLUSTER_NAME     = 'roboshop-eks'
         NAMESPACE        = 'roboshop'
-        APP_URL          = ''   // ✅ FIXED (empty)
+        APP_URL          = ''
         SONAR_AUTH_TOKEN = credentials('sonar-token')
-        HOSTED_ZONE_ID   = 'Z02341861LTO0U4VXW9AM'   // ✅ ADDED
     }
 
     stages {
 
-        // STAGE 1: CHECKOUT
+        // 1. CHECKOUT
         stage('Checkout') {
             steps {
                 git branch: 'main',
@@ -24,7 +24,7 @@ pipeline {
             }
         }
 
-        // STAGE 2: TERRAFORM
+        // 2. TERRAFORM INFRA (EKS, VPC)
         stage('Terraform Infra') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
@@ -39,7 +39,7 @@ pipeline {
             }
         }
 
-        // STAGE 3: BUILD
+        // 3. BUILD
         stage('Build Services') {
             steps {
                 sh 'cd services/cart && npm install'
@@ -49,7 +49,7 @@ pipeline {
             }
         }
 
-        // STAGE 4: SONARQUBE
+        // 4. SONARQUBE
         stage('SonarQube Scan') {
             steps {
                 withSonarQubeEnv('SonarQube-Server') {
@@ -67,7 +67,7 @@ pipeline {
             }
         }
 
-        // STAGE 5: QUALITY GATE
+        // 5. QUALITY GATE
         stage('Quality Gate') {
             steps {
                 timeout(time: 15, unit: 'MINUTES') {
@@ -76,7 +76,7 @@ pipeline {
             }
         }
 
-        // STAGE 6: DOCKER BUILD
+        // 6. DOCKER BUILD
         stage('Docker Build') {
             steps {
                 sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/cart:${IMAGE_TAG} -f docker/nodejs.Dockerfile services/cart"
@@ -87,15 +87,14 @@ pipeline {
             }
         }
 
-        // STAGE 7: TRIVY SCAN
+        // 7. TRIVY
         stage('Trivy Scan') {
             steps {
-                sh 'mkdir -p reports/trivy'
-                sh "trivy fs --severity HIGH,CRITICAL services/"
+                sh 'trivy fs --severity HIGH,CRITICAL services/'
             }
         }
 
-        // STAGE 8: PUSH TO ECR
+        // 8. PUSH TO ECR
         stage('Push to ECR') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
@@ -110,7 +109,7 @@ pipeline {
             }
         }
 
-        // STAGE 9: DEPLOY TO EKS + FETCH ALB
+        // 9. DEPLOY TO EKS + FETCH ALB
         stage('Deploy to EKS') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
@@ -126,7 +125,7 @@ pipeline {
 
                     script {
                         echo "Waiting for ALB..."
-                        sleep(60)
+                        sleep(120)
 
                         def alb = sh(
                             script: "kubectl get ingress -n ${NAMESPACE} -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}'",
@@ -140,67 +139,53 @@ pipeline {
             }
         }
 
-        // 🔥 NEW: ROUTE53
-        stage('Create Route53 Record') {
+        // 🔥 10. TERRAFORM ROUTE53
+        stage('Terraform Route53') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
 
-                    sh """
-                        ALB_DNS=\$(echo ${APP_URL} | sed 's|http://||')
+                    script {
+                        def alb_dns = env.APP_URL.replace("http://", "")
 
-                        aws route53 change-resource-record-sets \
-                          --hosted-zone-id ${HOSTED_ZONE_ID} \
-                          --change-batch '{
-                            "Changes": [{
-                              "Action": "UPSERT",
-                              "ResourceRecordSet": {
-                                "Name": "roboshop.manojdevops897.shop",
-                                "Type": "CNAME",
-                                "TTL": 60,
-                                "ResourceRecords": [{"Value": "'"\$ALB_DNS"'"}]
-                              }
-                            }]
-                          }'
-                    """
+                        sh """
+                            cd terraform
+                            terraform apply -auto-approve \
+                              -var="alb_dns_name=${alb_dns}"
+                        """
+                    }
                 }
             }
         }
 
-        // STAGE 10: OWASP ZAP (FIXED)
+        // 11. OWASP
         stage('OWASP ZAP Scan') {
             steps {
-                sh 'mkdir -p reports/zap'
                 sh """
-                    docker run --rm -v \$(pwd)/reports/zap:/zap/wrk/:rw \
+                    docker run --rm \
                     ghcr.io/zaproxy/zaproxy:stable \
                     zap-baseline.py -t ${APP_URL} -r zap-report.html -I
                 """
             }
         }
 
-        // STAGE 11: PROWLER
-        stage('Prowler AWS Security Scan') {
+        // 12. PROWLER
+        stage('Prowler Scan') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
-                    sh 'mkdir -p reports/prowler'
-                    sh 'prowler aws --region us-east-1 --output-formats html json --output-directory reports/prowler -M html'
+                    sh "prowler aws --region ${AWS_REGION}"
                 }
             }
         }
     }
 
     post {
-        always {
-            archiveArtifacts artifacts: 'reports/**/*', allowEmptyArchive: true
-            echo "Security Reports Archived"
-        }
         success {
-            echo "Pipeline SUCCESS - Build #${BUILD_NUMBER}"
+            echo "SUCCESS 🚀 - Build #${BUILD_NUMBER}"
         }
         failure {
-            echo "Pipeline FAILED - Build #${BUILD_NUMBER}"
+            echo "FAILED ❌ - Build #${BUILD_NUMBER}"
         }
     }
 }
