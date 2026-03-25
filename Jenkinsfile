@@ -100,18 +100,31 @@ pipeline {
                     sh "helm upgrade --install shipping helm/shipping --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/shipping --set image.tag=${IMAGE_TAG}"
                     sh "helm upgrade --install frontend helm/frontend --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/frontend --set image.tag=${IMAGE_TAG}"
                     script {
-                        def alb = ''
-                        retry(10) {
-                            sleep(30)
-                            // FIX 1: Removed '|| echo "Ingress not ready"' fallback
-                            alb = sh(
-                                script: "kubectl get ingress -n ${NAMESPACE} -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}' 2>/dev/null",
-                                returnStdout: true
-                            ).trim()
-                            // FIX 2: Retry on empty string instead of passing bad value
-                            if (!alb || alb == '') {
-                                error("ALB hostname not yet available, retrying...")
-                            }
+                        // Wait for ALB to be ready
+def alb_dns = ""
+for (int i = 0; i < 20; i++) {
+    alb_dns = sh(
+        script: "kubectl get ingress roboshop-ingress -n roboshop -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'",
+        returnStdout: true
+    ).trim()
+    if (alb_dns && !alb_dns.contains(" ")) {
+        echo "✅ ALB Ready: ${alb_dns}"
+        break
+    }
+    echo "⏳ Waiting for ALB... attempt ${i+1}/20"
+    sleep(15)
+}
+if (!alb_dns) {
+    error("❌ ALB not ready after waiting")
+}
+
+dir('Terraform') {
+    sh """
+        terraform init
+        terraform apply -auto-approve \
+            -var="alb_dns_name=${alb_dns}"
+    """
+}
                         }
                         // FIX 3: Store clean ALB DNS separately
                         env.ALB_DNS = alb
