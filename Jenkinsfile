@@ -89,6 +89,8 @@ pipeline {
                 }
             }
         }
+
+        // ✅ FIXED STAGE 1 - Deploy to EKS (replaced retry with for loop)
         stage('Deploy to EKS') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
@@ -100,62 +102,49 @@ pipeline {
                     sh "helm upgrade --install shipping helm/shipping --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/shipping --set image.tag=${IMAGE_TAG}"
                     sh "helm upgrade --install frontend helm/frontend --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/frontend --set image.tag=${IMAGE_TAG}"
                     script {
-                        // Wait for ALB to be ready
-def alb_dns = ""
-for (int i = 0; i < 20; i++) {
-    alb_dns = sh(
-        script: "kubectl get ingress roboshop-ingress -n roboshop -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'",
-        returnStdout: true
-    ).trim()
-    if (alb_dns && !alb_dns.contains(" ")) {
-        echo "✅ ALB Ready: ${alb_dns}"
-        break
-    }
-    echo "⏳ Waiting for ALB... attempt ${i+1}/20"
-    sleep(15)
-}
-if (!alb_dns) {
-    error("❌ ALB not ready after waiting")
-}
-
-dir('Terraform') {
-    sh """
-        terraform init
-        terraform apply -auto-approve \
-            -var="alb_dns_name=${alb_dns}"
-    """
-}
+                        def alb = ''
+                        for (int i = 0; i < 20; i++) {
+                            alb = sh(
+                                script: "kubectl get ingress roboshop-ingress -n roboshop -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'",
+                                returnStdout: true
+                            ).trim()
+                            if (alb && !alb.contains(" ")) {
+                                echo "✅ ALB Ready: ${alb}"
+                                break
+                            }
+                            echo "⏳ Waiting for ALB... attempt ${i+1}/20"
+                            sleep(15)
                         }
-                        // FIX 3: Store clean ALB DNS separately
-                        env.ALB_DNS = alb
+                        if (!alb || alb.contains(" ")) {
+                            error("❌ ALB not ready after waiting")
+                        }
                         env.APP_URL = "http://${alb}"
-                        echo "✅ ALB_DNS = ${env.ALB_DNS}"
                         echo "✅ APP_URL = ${env.APP_URL}"
                     }
                 }
             }
         }
+
+        // ✅ FIXED STAGE 2 - Terraform Route53 (removed bad APP_URL check)
         stage('Terraform Route53') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
                     script {
-                        if (!env.ALB_DNS) {
-                            error("ALB_DNS is empty! Cannot run Terraform Route53.")
-                        }
-                        // FIX 4: Use ALB_DNS directly, no string manipulation needed
-                        echo "ALB DNS: ${env.ALB_DNS}"
+                        def alb_dns = env.APP_URL.replace("http://", "")
+                        echo "ALB DNS: ${alb_dns}"
                         dir('Terraform') {
                             sh """
                                 terraform init
                                 terraform apply -auto-approve \
-                                  -var="alb_dns_name=${env.ALB_DNS}"
+                                  -var="alb_dns_name=${alb_dns}"
                             """
                         }
                     }
                 }
             }
         }
+
         stage('OWASP ZAP Scan') {
             steps {
                 script {
