@@ -1,6 +1,5 @@
 pipeline {
     agent any
-
     environment {
         PATH             = "/opt/sonar-scanner/bin:${env.PATH}"
         AWS_REGION       = 'us-east-1'
@@ -9,12 +8,9 @@ pipeline {
         IMAGE_TAG        = "${BUILD_NUMBER}"
         CLUSTER_NAME     = 'roboshop-eks'
         NAMESPACE        = 'roboshop'
-        APP_URL          = ''
         SONAR_AUTH_TOKEN = credentials('sonar-token')
     }
-
     stages {
-
         // 1. CHECKOUT
         stage('Checkout') {
             steps {
@@ -23,13 +19,12 @@ pipeline {
                     url: 'https://github.com/manojkumardevops89/Microservices-ROBOSHOP.git'
             }
         }
-
         // 2. TERRAFORM INFRA (EKS, VPC)
         stage('Terraform Infra') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
-                    dir('Terraform') {
+                    dir('Terraform') {  // ✅ Capital T
                         sh 'terraform init'
                         sh 'terraform validate'
                         sh 'terraform plan -out=tfplan'
@@ -38,7 +33,6 @@ pipeline {
                 }
             }
         }
-
         // 3. BUILD
         stage('Build Services') {
             steps {
@@ -48,7 +42,6 @@ pipeline {
                 sh 'cd services/shipping && mvn clean package'
             }
         }
-
         // 4. SONARQUBE
         stage('SonarQube Scan') {
             steps {
@@ -66,7 +59,6 @@ pipeline {
                 }
             }
         }
-
         // 5. QUALITY GATE
         stage('Quality Gate') {
             steps {
@@ -75,7 +67,6 @@ pipeline {
                 }
             }
         }
-
         // 6. DOCKER BUILD
         stage('Docker Build') {
             steps {
@@ -86,14 +77,12 @@ pipeline {
                 sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/frontend:${IMAGE_TAG} -f docker/nginx.Dockerfile services/frontend"
             }
         }
-
         // 7. TRIVY
         stage('Trivy Scan') {
             steps {
                 sh 'trivy fs --severity HIGH,CRITICAL services/'
             }
         }
-
         // 8. PUSH TO ECR
         stage('Push to ECR') {
             steps {
@@ -108,67 +97,75 @@ pipeline {
                 }
             }
         }
-
         // 9. DEPLOY TO EKS + FETCH ALB
         stage('Deploy to EKS') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
-
                     sh "aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}"
-
                     sh "helm upgrade --install cart helm/cart --namespace ${NAMESPACE} --create-namespace --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/cart --set image.tag=${IMAGE_TAG}"
                     sh "helm upgrade --install catalogue helm/catalogue --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/catalogue --set image.tag=${IMAGE_TAG}"
                     sh "helm upgrade --install user helm/user --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/user --set image.tag=${IMAGE_TAG}"
                     sh "helm upgrade --install shipping helm/shipping --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/shipping --set image.tag=${IMAGE_TAG}"
                     sh "helm upgrade --install frontend helm/frontend --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/frontend --set image.tag=${IMAGE_TAG}"
-
                     script {
-                        echo "Waiting for ALB..."
-                        sleep(120)
-
-                        def alb = sh(
-                            script: "kubectl get ingress -n ${NAMESPACE} -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}'",
-                            returnStdout: true
-                        ).trim()
-
+                        // ✅ Retry up to 10 times with 30s gap = 5 mins total
+                        def alb = ''
+                        retry(10) {
+                            sleep(30)
+                            alb = sh(
+                                script: "kubectl get ingress -n ${NAMESPACE} -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}'",
+                                returnStdout: true
+                            ).trim()
+                            if (alb == '') {
+                                error("ALB hostname not yet available, retrying...")
+                            }
+                        }
                         env.APP_URL = "http://${alb}"
-                        echo "APP URL: ${env.APP_URL}"
+                        echo "✅ APP_URL = ${env.APP_URL}"
                     }
                 }
             }
         }
-
-        // 🔥 10. TERRAFORM ROUTE53
+        // 10. TERRAFORM ROUTE53
         stage('Terraform Route53') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
-
                     script {
+                        // ✅ Safe null check before replace
+                        if (!env.APP_URL) {
+                            error("APP_URL is empty! Cannot run Terraform Route53.")
+                        }
                         def alb_dns = env.APP_URL.replace("http://", "")
-
-                        sh """
-                            cd terraform
-                            terraform apply -auto-approve \
-                              -var="alb_dns_name=${alb_dns}"
-                        """
+                        echo "ALB DNS: ${alb_dns}"
+                        dir('Terraform') {  // ✅ Capital T - matches your folder
+                            sh """
+                                terraform init
+                                terraform apply -auto-approve \
+                                  -var="alb_dns_name=${alb_dns}"
+                            """
+                        }
                     }
                 }
             }
         }
-
         // 11. OWASP
         stage('OWASP ZAP Scan') {
             steps {
-                sh """
-                    docker run --rm \
-                    ghcr.io/zaproxy/zaproxy:stable \
-                    zap-baseline.py -t ${APP_URL} -r zap-report.html -I
-                """
+                script {
+                    // ✅ Safe check before using APP_URL
+                    if (!env.APP_URL) {
+                        error("APP_URL is empty! Cannot run OWASP scan.")
+                    }
+                    sh """
+                        docker run --rm \
+                        ghcr.io/zaproxy/zaproxy:stable \
+                        zap-baseline.py -t ${env.APP_URL} -r zap-report.html -I
+                    """
+                }
             }
         }
-
         // 12. PROWLER
         stage('Prowler Scan') {
             steps {
@@ -179,7 +176,6 @@ pipeline {
             }
         }
     }
-
     post {
         success {
             echo "SUCCESS 🚀 - Build #${BUILD_NUMBER}"
