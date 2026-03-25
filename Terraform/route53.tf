@@ -1,13 +1,13 @@
 # You must already have a hosted zone in Route53
 # Replace "yourdomain.com" with your actual domain
 data "aws_route53_zone" "main" {
-  name = "yourdomain.com"
+  name = "manojdevops897.shop"
 }
 
 # ---- Record pointing to AZ-1a (weight 50) ----
 resource "aws_route53_record" "roboshop_1a" {
   zone_id = data.aws_route53_zone.main.zone_id
-  name    = "roboshop.yourdomain.com"
+  name    = "roboshop.manojdevops897.shop"
   type    = "CNAME"
 
   weighted_routing_policy {
@@ -22,7 +22,7 @@ resource "aws_route53_record" "roboshop_1a" {
 # ---- Record pointing to AZ-1b (weight 50) ----
 resource "aws_route53_record" "roboshop_1b" {
   zone_id = data.aws_route53_zone.main.zone_id
-  name    = "roboshop.yourdomain.com"
+  name    = "roboshop.manojdevops897.shop"
   type    = "CNAME"
 
   weighted_routing_policy {
