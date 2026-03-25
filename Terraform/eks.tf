@@ -1,5 +1,5 @@
 resource "aws_iam_role" "eks_cluster" {
-  name = "roboshop-cluster-role"
+  name = "roboshop-cluster-role-manoj"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -33,7 +33,7 @@ resource "aws_eks_cluster" "main" {
 }
 
 resource "aws_iam_role" "eks_nodes" {
-  name = "roboshop-node-role"
+  name = "roboshop-node-role-manoj"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
