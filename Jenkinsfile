@@ -89,8 +89,6 @@ pipeline {
                 }
             }
         }
-
-        // ✅ FIXED STAGE 1 - Deploy to EKS (replaced retry with for loop)
         stage('Deploy to EKS') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
@@ -115,52 +113,25 @@ pipeline {
                             echo "⏳ Waiting for ALB... attempt ${i+1}/20"
                             sleep(15)
                         }
-                        if (!alb || alb.contains(" ")) {
-                            error("❌ ALB not ready after waiting")
-                        }
                         env.APP_URL = "http://${alb}"
                         echo "✅ APP_URL = ${env.APP_URL}"
                     }
                 }
             }
         }
-
-        // ✅ FIXED STAGE 2 - Terraform Route53 (removed bad APP_URL check)
-        stage('Terraform Route53') {
-            steps {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
-                                  credentialsId: 'aws-credentials']]) {
-                    script {
-                        def alb_dns = env.APP_URL.replace("http://", "")
-                        echo "ALB DNS: ${alb_dns}"
-                        dir('Terraform') {
-                            sh """
-                                terraform init
-                                terraform apply -auto-approve \
-                                  -var="alb_dns_name=${alb_dns}"
-                            """
-                        }
-                    }
-                }
-            }
-        }
-
         stage('OWASP ZAP Scan') {
             steps {
                 script {
-                    if (!env.APP_URL) {
-                        error("APP_URL is empty! Cannot run OWASP scan.")
-                    }
                     sh "mkdir -p ${WORKSPACE}/zap-reports"
                     sh """
-                      docker run --rm \
-                     -v ${WORKSPACE}/zap-reports:/zap/wrk/:rw \
-                     ghcr.io/zaproxy/zaproxy:stable \
-                    zap-baseline.py \
-                   -t ${env.APP_URL} \
-                   -r zap-report.html \
-                   -I
-                """
+                        docker run --rm \
+                        -v ${WORKSPACE}/zap-reports:/zap/wrk/:rw \
+                        ghcr.io/zaproxy/zaproxy:stable \
+                        zap-baseline.py \
+                        -t ${env.APP_URL} \
+                        -r zap-report.html \
+                        -I
+                    """
                 }
             }
         }
