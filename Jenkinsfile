@@ -158,11 +158,16 @@ pipeline {
                     if (!env.APP_URL) {
                         error("APP_URL is empty! Cannot run OWASP scan.")
                     }
-                    sh """
-                        docker run --rm \
-                        ghcr.io/zaproxy/zaproxy:stable \
-                        zap-baseline.py -t ${env.APP_URL} -r zap-report.html -I
-                    """
+                   sh "mkdir -p ${WORKSPACE}/zap-reports"
+                  sh """
+                      docker run --rm \
+                     -v ${WORKSPACE}/zap-reports:/zap/wrk/:rw \
+                     ghcr.io/zaproxy/zaproxy:stable \
+                    zap-baseline.py \
+                   -t ${env.APP_URL} \
+                   -r zap-report.html \
+                   -I
+                """ 
                 }
             }
         }
