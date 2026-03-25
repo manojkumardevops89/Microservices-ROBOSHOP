@@ -114,7 +114,7 @@ pipeline {
                         retry(10) {
                             sleep(30)
                             alb = sh(
-                                script: "kubectl get ingress -n ${NAMESPACE} -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}'",
+                                script: "kubectl get ingress -n roboshop -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "Ingress not ready"",
                                 returnStdout: true
                             ).trim()
                             if (alb == '') {
