@@ -18,7 +18,6 @@ pipeline {
                     url: 'https://github.com/manojkumardevops89/Microservices-ROBOSHOP.git'
             }
         }
-
         stage('Terraform Infra') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
@@ -32,7 +31,6 @@ pipeline {
                 }
             }
         }
-
         stage('Build Services') {
             steps {
                 sh 'cd services/cart && npm install'
@@ -41,7 +39,6 @@ pipeline {
                 sh 'cd services/shipping && mvn clean package'
             }
         }
-
         stage('SonarQube Scan') {
             steps {
                 withSonarQubeEnv('SonarQube-Server') {
@@ -58,7 +55,6 @@ pipeline {
                 }
             }
         }
-
         stage('Quality Gate') {
             steps {
                 timeout(time: 15, unit: 'MINUTES') {
@@ -66,7 +62,6 @@ pipeline {
                 }
             }
         }
-
         stage('Docker Build') {
             steps {
                 sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/cart:${IMAGE_TAG} -f docker/nodejs.Dockerfile services/cart"
@@ -76,13 +71,11 @@ pipeline {
                 sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/frontend:${IMAGE_TAG} -f docker/nginx.Dockerfile services/frontend"
             }
         }
-
         stage('Trivy Scan') {
             steps {
                 sh 'trivy fs --severity HIGH,CRITICAL services/'
             }
         }
-
         stage('Push to ECR') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
@@ -96,7 +89,6 @@ pipeline {
                 }
             }
         }
-
         stage('Deploy to EKS') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
@@ -107,48 +99,50 @@ pipeline {
                     sh "helm upgrade --install user helm/user --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/user --set image.tag=${IMAGE_TAG}"
                     sh "helm upgrade --install shipping helm/shipping --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/shipping --set image.tag=${IMAGE_TAG}"
                     sh "helm upgrade --install frontend helm/frontend --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/frontend --set image.tag=${IMAGE_TAG}"
-
                     script {
                         def alb = ''
                         retry(10) {
                             sleep(30)
+                            // FIX 1: Removed '|| echo "Ingress not ready"' fallback
                             alb = sh(
-                                script: '''kubectl get ingress -n roboshop -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "Ingress not ready"''',
+                                script: "kubectl get ingress -n ${NAMESPACE} -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}' 2>/dev/null",
                                 returnStdout: true
                             ).trim()
-                            if (alb == '') {
+                            // FIX 2: Retry on empty string instead of passing bad value
+                            if (!alb || alb == '') {
                                 error("ALB hostname not yet available, retrying...")
                             }
                         }
+                        // FIX 3: Store clean ALB DNS separately
+                        env.ALB_DNS = alb
                         env.APP_URL = "http://${alb}"
+                        echo "✅ ALB_DNS = ${env.ALB_DNS}"
                         echo "✅ APP_URL = ${env.APP_URL}"
                     }
                 }
             }
         }
-
         stage('Terraform Route53') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
                     script {
-                        if (!env.APP_URL) {
-                            error("APP_URL is empty! Cannot run Terraform Route53.")
+                        if (!env.ALB_DNS) {
+                            error("ALB_DNS is empty! Cannot run Terraform Route53.")
                         }
-                        def alb_dns = env.APP_URL.replace("http://", "")
-                        echo "ALB DNS: ${alb_dns}"
+                        // FIX 4: Use ALB_DNS directly, no string manipulation needed
+                        echo "ALB DNS: ${env.ALB_DNS}"
                         dir('Terraform') {
                             sh """
                                 terraform init
                                 terraform apply -auto-approve \
-                                  -var="alb_dns_name=${alb_dns}"
+                                  -var="alb_dns_name=${env.ALB_DNS}"
                             """
                         }
                     }
                 }
             }
         }
-
         stage('OWASP ZAP Scan') {
             steps {
                 script {
@@ -168,7 +162,6 @@ pipeline {
                 }
             }
         }
-
         stage('Prowler Scan') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
@@ -178,7 +171,6 @@ pipeline {
             }
         }
     }
-
     post {
         success {
             echo "SUCCESS 🚀 - Build #${BUILD_NUMBER}"
