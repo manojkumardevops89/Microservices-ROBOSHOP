@@ -10,7 +10,6 @@ pipeline {
         NAMESPACE        = 'roboshop'
         APP_URL          = 'http://your-app-loadbalancer-url'
         SONAR_AUTH_TOKEN = credentials('sonar-token')
-        TF_DIR           = 'terraform'
     }
     stages {
 
@@ -28,28 +27,14 @@ pipeline {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
-                    sh """
-                        echo "=== Terraform Init ==="
-                        cd ${TF_DIR}
-                        terraform init -input=false
-
-                        echo "=== Terraform Validate ==="
-                        terraform validate
-
-                        echo "=== Terraform Plan ==="
-                        terraform plan \
-                            -var="aws_region=${AWS_REGION}" \
-                            -var="cluster_name=${CLUSTER_NAME}" \
-                            -var="ecr_repo=${ECR_REPO}" \
-                            -out=tfplan \
-                            -input=false
-
-                        echo "=== Terraform Apply ==="
-                        terraform apply \
-                            -input=false \
-                            -auto-approve \
-                            tfplan
-                    """
+                    dir('terraform') {
+                        sh '''
+                            terraform init
+                            terraform validate
+                            terraform plan -out=tfplan
+                            terraform apply -auto-approve tfplan
+                        '''
+                    }
                 }
             }
         }
@@ -245,7 +230,3 @@ pipeline {
             echo "✅ Pipeline SUCCESS - Build #${BUILD_NUMBER}"
         }
         failure {
-            echo "❌ Pipeline FAILED - Build #${BUILD_NUMBER}"
-        }
-    }
-}
