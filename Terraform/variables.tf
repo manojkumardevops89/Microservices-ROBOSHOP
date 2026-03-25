@@ -73,6 +73,7 @@ variable "domain_name" {
 
 # ✅ NEW (IMPORTANT)
 variable "alb_dns_name" {
-  description = "ALB DNS from EKS Ingress"
+  description = "ALB DNS from EKS"
   type        = string
+  default     = ""   # 
 }
