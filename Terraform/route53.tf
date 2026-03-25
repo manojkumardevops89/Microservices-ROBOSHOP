@@ -11,4 +11,5 @@ resource "aws_route53_record" "roboshop" {
   ttl     = 60
 
   records = [var.alb_dns_name]
+  allow_overwrite = true
 }
