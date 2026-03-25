@@ -11,7 +11,6 @@ pipeline {
         SONAR_AUTH_TOKEN = credentials('sonar-token')
     }
     stages {
-        // 1. CHECKOUT
         stage('Checkout') {
             steps {
                 git branch: 'main',
@@ -19,12 +18,12 @@ pipeline {
                     url: 'https://github.com/manojkumardevops89/Microservices-ROBOSHOP.git'
             }
         }
-        // 2. TERRAFORM INFRA (EKS, VPC)
+
         stage('Terraform Infra') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
-                    dir('Terraform') {  // ✅ Capital T
+                    dir('Terraform') {
                         sh 'terraform init'
                         sh 'terraform validate'
                         sh 'terraform plan -out=tfplan'
@@ -33,7 +32,7 @@ pipeline {
                 }
             }
         }
-        // 3. BUILD
+
         stage('Build Services') {
             steps {
                 sh 'cd services/cart && npm install'
@@ -42,7 +41,7 @@ pipeline {
                 sh 'cd services/shipping && mvn clean package'
             }
         }
-        // 4. SONARQUBE
+
         stage('SonarQube Scan') {
             steps {
                 withSonarQubeEnv('SonarQube-Server') {
@@ -59,7 +58,7 @@ pipeline {
                 }
             }
         }
-        // 5. QUALITY GATE
+
         stage('Quality Gate') {
             steps {
                 timeout(time: 15, unit: 'MINUTES') {
@@ -67,7 +66,7 @@ pipeline {
                 }
             }
         }
-        // 6. DOCKER BUILD
+
         stage('Docker Build') {
             steps {
                 sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/cart:${IMAGE_TAG} -f docker/nodejs.Dockerfile services/cart"
@@ -77,13 +76,13 @@ pipeline {
                 sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/frontend:${IMAGE_TAG} -f docker/nginx.Dockerfile services/frontend"
             }
         }
-        // 7. TRIVY
+
         stage('Trivy Scan') {
             steps {
                 sh 'trivy fs --severity HIGH,CRITICAL services/'
             }
         }
-        // 8. PUSH TO ECR
+
         stage('Push to ECR') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
@@ -97,7 +96,7 @@ pipeline {
                 }
             }
         }
-        // 9. DEPLOY TO EKS + FETCH ALB
+
         stage('Deploy to EKS') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
@@ -108,13 +107,13 @@ pipeline {
                     sh "helm upgrade --install user helm/user --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/user --set image.tag=${IMAGE_TAG}"
                     sh "helm upgrade --install shipping helm/shipping --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/shipping --set image.tag=${IMAGE_TAG}"
                     sh "helm upgrade --install frontend helm/frontend --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/frontend --set image.tag=${IMAGE_TAG}"
+
                     script {
-                        // ✅ Retry up to 10 times with 30s gap = 5 mins total
                         def alb = ''
                         retry(10) {
                             sleep(30)
                             alb = sh(
-                                script: "kubectl get ingress -n roboshop -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "Ingress not ready"",
+                                script: '''kubectl get ingress -n roboshop -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "Ingress not ready"''',
                                 returnStdout: true
                             ).trim()
                             if (alb == '') {
@@ -127,19 +126,18 @@ pipeline {
                 }
             }
         }
-        // 10. TERRAFORM ROUTE53
+
         stage('Terraform Route53') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
                     script {
-                        // ✅ Safe null check before replace
                         if (!env.APP_URL) {
                             error("APP_URL is empty! Cannot run Terraform Route53.")
                         }
                         def alb_dns = env.APP_URL.replace("http://", "")
                         echo "ALB DNS: ${alb_dns}"
-                        dir('Terraform') {  // ✅ Capital T - matches your folder
+                        dir('Terraform') {
                             sh """
                                 terraform init
                                 terraform apply -auto-approve \
@@ -150,16 +148,15 @@ pipeline {
                 }
             }
         }
-        // 11. OWASP
+
         stage('OWASP ZAP Scan') {
             steps {
                 script {
-                    // ✅ Safe check before using APP_URL
                     if (!env.APP_URL) {
                         error("APP_URL is empty! Cannot run OWASP scan.")
                     }
-                   sh "mkdir -p ${WORKSPACE}/zap-reports"
-                  sh """
+                    sh "mkdir -p ${WORKSPACE}/zap-reports"
+                    sh """
                       docker run --rm \
                      -v ${WORKSPACE}/zap-reports:/zap/wrk/:rw \
                      ghcr.io/zaproxy/zaproxy:stable \
@@ -167,11 +164,11 @@ pipeline {
                    -t ${env.APP_URL} \
                    -r zap-report.html \
                    -I
-                """ 
+                """
                 }
             }
         }
-        // 12. PROWLER
+
         stage('Prowler Scan') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
@@ -181,6 +178,7 @@ pipeline {
             }
         }
     }
+
     post {
         success {
             echo "SUCCESS 🚀 - Build #${BUILD_NUMBER}"
