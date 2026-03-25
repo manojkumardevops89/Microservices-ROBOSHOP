@@ -284,18 +284,3 @@ pipeline {
         }
     }
 }
-```
-
----
-
-## Pipeline Flow Summary
-```
-1. Checkout          → Pull code from GitHub
-2. Build             → npm install + mvn package
-3. SonarQube         → Code quality scan
-   Quality Gate      → Fail if quality threshold not met
-4. Docker Build      → Build all 5 service images
-5. Trivy Scan        → Scan filesystem + all Docker images
-6. Push to ECR       → Create repos if needed + push images
-7. Deploy to EKS     → Helm deploy all services
-8. OWASP ZAP         → Live app scan (hits real URL after deploy)
