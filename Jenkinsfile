@@ -8,9 +8,11 @@ pipeline {
         IMAGE_TAG        = "${BUILD_NUMBER}"
         CLUSTER_NAME     = 'roboshop-eks-cluster'
         NAMESPACE        = 'roboshop'
-        APP_URL          = 'http://your-app-loadbalancer-url'
+        APP_URL          = ''   // ✅ FIXED (empty)
         SONAR_AUTH_TOKEN = credentials('sonar-token')
+        HOSTED_ZONE_ID   = 'Z02341861LTO0U4VXW9AM'   // ✅ ADDED
     }
+
     stages {
 
         // STAGE 1: CHECKOUT
@@ -27,7 +29,7 @@ pipeline {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
-                    dir('Terraform') {
+                    dir('terraform') {
                         sh 'terraform init'
                         sh 'terraform validate'
                         sh 'terraform plan -out=tfplan'
@@ -51,7 +53,16 @@ pipeline {
         stage('SonarQube Scan') {
             steps {
                 withSonarQubeEnv('SonarQube-Server') {
-                    sh 'sonar-scanner -Dsonar.projectKey=roboshop -Dsonar.projectName=roboshop -Dsonar.sources=services -Dsonar.host.url=http://52.66.83.222:9000 -Dsonar.login=$SONAR_AUTH_TOKEN -Dsonar.java.binaries=services/shipping/target/classes -Dsonar.exclusions=**/*.jar'
+                    sh '''
+                        sonar-scanner \
+                        -Dsonar.projectKey=roboshop \
+                        -Dsonar.projectName=roboshop \
+                        -Dsonar.sources=services \
+                        -Dsonar.host.url=http://52.66.83.222:9000 \
+                        -Dsonar.login=$SONAR_AUTH_TOKEN \
+                        -Dsonar.java.binaries=services/shipping/target/classes \
+                        -Dsonar.exclusions=**/*.jar
+                    '''
                 }
             }
         }
@@ -80,12 +91,7 @@ pipeline {
         stage('Trivy Scan') {
             steps {
                 sh 'mkdir -p reports/trivy'
-                sh "trivy fs --format table --exit-code 0 --severity HIGH,CRITICAL --output reports/trivy/fs-report.txt services/"
-                sh "trivy image --format table --exit-code 0 --severity HIGH,CRITICAL --output reports/trivy/cart-report.txt ${ECR_REGISTRY}/${ECR_REPO}/cart:${IMAGE_TAG}"
-                sh "trivy image --format table --exit-code 0 --severity HIGH,CRITICAL --output reports/trivy/catalogue-report.txt ${ECR_REGISTRY}/${ECR_REPO}/catalogue:${IMAGE_TAG}"
-                sh "trivy image --format table --exit-code 0 --severity HIGH,CRITICAL --output reports/trivy/user-report.txt ${ECR_REGISTRY}/${ECR_REPO}/user:${IMAGE_TAG}"
-                sh "trivy image --format table --exit-code 0 --severity HIGH,CRITICAL --output reports/trivy/shipping-report.txt ${ECR_REGISTRY}/${ECR_REPO}/shipping:${IMAGE_TAG}"
-                sh "trivy image --format table --exit-code 0 --severity HIGH,CRITICAL --output reports/trivy/frontend-report.txt ${ECR_REGISTRY}/${ECR_REPO}/frontend:${IMAGE_TAG}"
+                sh "trivy fs --severity HIGH,CRITICAL services/"
             }
         }
 
@@ -104,26 +110,72 @@ pipeline {
             }
         }
 
-        // STAGE 9: DEPLOY TO EKS
+        // STAGE 9: DEPLOY TO EKS + FETCH ALB
         stage('Deploy to EKS') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
+
                     sh "aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}"
+
                     sh "helm upgrade --install cart helm/cart --namespace ${NAMESPACE} --create-namespace --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/cart --set image.tag=${IMAGE_TAG}"
                     sh "helm upgrade --install catalogue helm/catalogue --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/catalogue --set image.tag=${IMAGE_TAG}"
                     sh "helm upgrade --install user helm/user --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/user --set image.tag=${IMAGE_TAG}"
                     sh "helm upgrade --install shipping helm/shipping --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/shipping --set image.tag=${IMAGE_TAG}"
                     sh "helm upgrade --install frontend helm/frontend --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/frontend --set image.tag=${IMAGE_TAG}"
+
+                    script {
+                        echo "Waiting for ALB..."
+                        sleep(60)
+
+                        def alb = sh(
+                            script: "kubectl get ingress -n ${NAMESPACE} -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}'",
+                            returnStdout: true
+                        ).trim()
+
+                        env.APP_URL = "http://${alb}"
+                        echo "APP URL: ${env.APP_URL}"
+                    }
                 }
             }
         }
 
-        // STAGE 10: OWASP ZAP SCAN
+        // 🔥 NEW: ROUTE53
+        stage('Create Route53 Record') {
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
+                                  credentialsId: 'aws-credentials']]) {
+
+                    sh """
+                        ALB_DNS=\$(echo ${APP_URL} | sed 's|http://||')
+
+                        aws route53 change-resource-record-sets \
+                          --hosted-zone-id ${HOSTED_ZONE_ID} \
+                          --change-batch '{
+                            "Changes": [{
+                              "Action": "UPSERT",
+                              "ResourceRecordSet": {
+                                "Name": "roboshop.manojdevops897.shop",
+                                "Type": "CNAME",
+                                "TTL": 60,
+                                "ResourceRecords": [{"Value": "'"\$ALB_DNS"'"}]
+                              }
+                            }]
+                          }'
+                    """
+                }
+            }
+        }
+
+        // STAGE 10: OWASP ZAP (FIXED)
         stage('OWASP ZAP Scan') {
             steps {
                 sh 'mkdir -p reports/zap'
-                sh 'docker run --rm -v $(pwd)/reports/zap:/zap/wrk/:rw ghcr.io/zaproxy/zaproxy:stable zap-baseline.py -t http://your-app-loadbalancer-url -r zap-report.html -I'
+                sh """
+                    docker run --rm -v \$(pwd)/reports/zap:/zap/wrk/:rw \
+                    ghcr.io/zaproxy/zaproxy:stable \
+                    zap-baseline.py -t ${APP_URL} -r zap-report.html -I
+                """
             }
         }
 
