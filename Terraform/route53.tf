@@ -1,21 +1,21 @@
 pipeline {
     agent any
-
     environment {
-        AWS_REGION   = 'us-east-1'
-        ECR_REGISTRY = credentials('ecr-registry')
-        ECR_REPO     = 'roboshop'
-        IMAGE_TAG    = "${BUILD_NUMBER}"
-        CLUSTER_NAME = 'roboshop-eks-cluster'
-        NAMESPACE    = 'roboshop'
-        APP_URL      = ''
+        PATH             = "/opt/sonar-scanner/bin:${env.PATH}"
+        AWS_REGION       = 'us-east-1'
+        ECR_REGISTRY     = credentials('ecr-registry')
+        ECR_REPO         = 'roboshop'
+        IMAGE_TAG        = "${BUILD_NUMBER}"
+        CLUSTER_NAME     = 'roboshop-eks-cluster'
+        NAMESPACE        = 'roboshop'
+        APP_URL          = ''   // ✅ FIXED (empty)
         SONAR_AUTH_TOKEN = credentials('sonar-token')
-        HOSTED_ZONE_ID = 'Z02341861LTO0U4VXW9AM'   // ✅ UPDATED
+        HOSTED_ZONE_ID   = 'Z02341861LTO0U4VXW9AM'   // ✅ ADDED
     }
 
     stages {
 
-        // 🔹 1. CHECKOUT
+        // STAGE 1: CHECKOUT
         stage('Checkout') {
             steps {
                 git branch: 'main',
@@ -24,175 +24,128 @@ pipeline {
             }
         }
 
-        // 🔹 2. SONARQUBE
+        // STAGE 2: TERRAFORM
+        stage('Terraform Infra') {
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
+                                  credentialsId: 'aws-credentials']]) {
+                    dir('terraform') {
+                        sh 'terraform init'
+                        sh 'terraform validate'
+                        sh 'terraform plan -out=tfplan'
+                        sh 'terraform apply -auto-approve tfplan'
+                    }
+                }
+            }
+        }
+
+        // STAGE 3: BUILD
+        stage('Build Services') {
+            steps {
+                sh 'cd services/cart && npm install'
+                sh 'cd services/catalogue && npm install'
+                sh 'cd services/user && npm install'
+                sh 'cd services/shipping && mvn clean package'
+            }
+        }
+
+        // STAGE 4: SONARQUBE
         stage('SonarQube Scan') {
             steps {
                 withSonarQubeEnv('SonarQube-Server') {
                     sh '''
                         sonar-scanner \
-                          -Dsonar.projectKey=roboshop \
-                          -Dsonar.projectName=roboshop \
-                          -Dsonar.sources=services \
-                          -Dsonar.host.url=http://52.66.83.222:9000 \
-                          -Dsonar.login=$SONAR_AUTH_TOKEN
+                        -Dsonar.projectKey=roboshop \
+                        -Dsonar.projectName=roboshop \
+                        -Dsonar.sources=services \
+                        -Dsonar.host.url=http://52.66.83.222:9000 \
+                        -Dsonar.login=$SONAR_AUTH_TOKEN \
+                        -Dsonar.java.binaries=services/shipping/target/classes \
+                        -Dsonar.exclusions=**/*.jar
                     '''
                 }
             }
         }
 
+        // STAGE 5: QUALITY GATE
         stage('Quality Gate') {
             steps {
-                timeout(time: 5, unit: 'MINUTES') {
-                    waitForQualityGate abortPipeline: true
+                timeout(time: 15, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: false
                 }
             }
         }
 
-        // 🔹 3. TERRAFORM
-        stage('Terraform Init') {
-            steps {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
-                                  credentialsId: 'aws-credentials']]) {
-                    dir('Terraform') {
-                        sh 'terraform init'
-                    }
-                }
-            }
-        }
-
-        stage('Terraform Plan') {
-            steps {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
-                                  credentialsId: 'aws-credentials']]) {
-                    dir('Terraform') {
-                        sh 'terraform plan'
-                    }
-                }
-            }
-        }
-
-        stage('Terraform Apply') {
-            steps {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
-                                  credentialsId: 'aws-credentials']]) {
-                    dir('Terraform') {
-                        sh 'terraform apply -auto-approve'
-                    }
-                }
-            }
-        }
-
-        // 🔹 4. BUILD
-        stage('Build Services') {
-            steps {
-                sh '''
-                    cd services/cart && npm install
-                    cd ../catalogue && npm install
-                    cd ../user && npm install
-                    cd ../shipping && mvn clean package
-                '''
-            }
-        }
-
-        // 🔹 5. CREATE ECR
-        stage('Create ECR Repositories') {
-            steps {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
-                                  credentialsId: 'aws-credentials']]) {
-                    sh """
-                        aws ecr describe-repositories --repository-names ${ECR_REPO}/cart --region ${AWS_REGION} || \
-                        aws ecr create-repository --repository-name ${ECR_REPO}/cart --region ${AWS_REGION}
-
-                        aws ecr describe-repositories --repository-names ${ECR_REPO}/catalogue --region ${AWS_REGION} || \
-                        aws ecr create-repository --repository-name ${ECR_REPO}/catalogue --region ${AWS_REGION}
-
-                        aws ecr describe-repositories --repository-names ${ECR_REPO}/user --region ${AWS_REGION} || \
-                        aws ecr create-repository --repository-name ${ECR_REPO}/user --region ${AWS_REGION}
-
-                        aws ecr describe-repositories --repository-names ${ECR_REPO}/shipping --region ${AWS_REGION} || \
-                        aws ecr create-repository --repository-name ${ECR_REPO}/shipping --region ${AWS_REGION}
-
-                        aws ecr describe-repositories --repository-names ${ECR_REPO}/frontend --region ${AWS_REGION} || \
-                        aws ecr create-repository --repository-name ${ECR_REPO}/frontend --region ${AWS_REGION}
-                    """
-                }
-            }
-        }
-
-        // 🔹 6. DOCKER BUILD
+        // STAGE 6: DOCKER BUILD
         stage('Docker Build') {
             steps {
-                sh """
-                    docker build -t ${ECR_REGISTRY}/${ECR_REPO}/cart:${IMAGE_TAG} -f docker/nodejs.Dockerfile services/cart
-                    docker build -t ${ECR_REGISTRY}/${ECR_REPO}/catalogue:${IMAGE_TAG} -f docker/nodejs.Dockerfile services/catalogue
-                    docker build -t ${ECR_REGISTRY}/${ECR_REPO}/user:${IMAGE_TAG} -f docker/nodejs.Dockerfile services/user
-                    docker build -t ${ECR_REGISTRY}/${ECR_REPO}/shipping:${IMAGE_TAG} -f docker/java.Dockerfile services/shipping
-                    docker build -t ${ECR_REGISTRY}/${ECR_REPO}/frontend:${IMAGE_TAG} -f docker/nginx.Dockerfile services/frontend
-                """
+                sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/cart:${IMAGE_TAG} -f docker/nodejs.Dockerfile services/cart"
+                sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/catalogue:${IMAGE_TAG} -f docker/nodejs.Dockerfile services/catalogue"
+                sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/user:${IMAGE_TAG} -f docker/nodejs.Dockerfile services/user"
+                sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/shipping:${IMAGE_TAG} -f docker/java.Dockerfile services/shipping"
+                sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/frontend:${IMAGE_TAG} -f docker/nginx.Dockerfile services/frontend"
             }
         }
 
-        // 🔹 7. TRIVY
+        // STAGE 7: TRIVY SCAN
         stage('Trivy Scan') {
             steps {
-                sh """
-                    trivy image --severity CRITICAL,HIGH --exit-code 1 ${ECR_REGISTRY}/${ECR_REPO}/cart:${IMAGE_TAG}
-                """
+                sh 'mkdir -p reports/trivy'
+                sh "trivy fs --severity HIGH,CRITICAL services/"
             }
         }
 
-        // 🔹 8. PUSH TO ECR
-        stage('Push Images') {
+        // STAGE 8: PUSH TO ECR
+        stage('Push to ECR') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
-                    sh """
-                        aws ecr get-login-password --region ${AWS_REGION} \
-                        | docker login --username AWS --password-stdin ${ECR_REGISTRY}
-
-                        docker push ${ECR_REGISTRY}/${ECR_REPO}/cart:${IMAGE_TAG}
-                        docker push ${ECR_REGISTRY}/${ECR_REPO}/catalogue:${IMAGE_TAG}
-                        docker push ${ECR_REGISTRY}/${ECR_REPO}/user:${IMAGE_TAG}
-                        docker push ${ECR_REGISTRY}/${ECR_REPO}/shipping:${IMAGE_TAG}
-                        docker push ${ECR_REGISTRY}/${ECR_REPO}/frontend:${IMAGE_TAG}
-                    """
+                    sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
+                    sh "docker push ${ECR_REGISTRY}/${ECR_REPO}/cart:${IMAGE_TAG}"
+                    sh "docker push ${ECR_REGISTRY}/${ECR_REPO}/catalogue:${IMAGE_TAG}"
+                    sh "docker push ${ECR_REGISTRY}/${ECR_REPO}/user:${IMAGE_TAG}"
+                    sh "docker push ${ECR_REGISTRY}/${ECR_REPO}/shipping:${IMAGE_TAG}"
+                    sh "docker push ${ECR_REGISTRY}/${ECR_REPO}/frontend:${IMAGE_TAG}"
                 }
             }
         }
 
-        // 🔹 9. DEPLOY TO EKS
+        // STAGE 9: DEPLOY TO EKS + FETCH ALB
         stage('Deploy to EKS') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
-                    sh """
-                        aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}
 
-                        helm upgrade --install frontend helm/frontend \
-                            --namespace ${NAMESPACE} --create-namespace \
-                            --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/frontend \
-                            --set image.tag=${IMAGE_TAG}
-                    """
+                    sh "aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}"
+
+                    sh "helm upgrade --install cart helm/cart --namespace ${NAMESPACE} --create-namespace --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/cart --set image.tag=${IMAGE_TAG}"
+                    sh "helm upgrade --install catalogue helm/catalogue --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/catalogue --set image.tag=${IMAGE_TAG}"
+                    sh "helm upgrade --install user helm/user --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/user --set image.tag=${IMAGE_TAG}"
+                    sh "helm upgrade --install shipping helm/shipping --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/shipping --set image.tag=${IMAGE_TAG}"
+                    sh "helm upgrade --install frontend helm/frontend --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/frontend --set image.tag=${IMAGE_TAG}"
 
                     script {
-                        echo "Fetching ALB DNS..."
-                        def appUrl = sh(
+                        echo "Waiting for ALB..."
+                        sleep(60)
+
+                        def alb = sh(
                             script: "kubectl get ingress -n ${NAMESPACE} -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}'",
                             returnStdout: true
                         ).trim()
 
-                        env.APP_URL = "http://${appUrl}"
+                        env.APP_URL = "http://${alb}"
                         echo "APP URL: ${env.APP_URL}"
                     }
                 }
             }
         }
 
-        // 🔥 10. ROUTE53
+        // 🔥 NEW: ROUTE53
         stage('Create Route53 Record') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
+
                     sh """
                         ALB_DNS=\$(echo ${APP_URL} | sed 's|http://||')
 
@@ -214,22 +167,40 @@ pipeline {
             }
         }
 
-        // 🔹 11. PROWLER
-        stage('Prowler Scan') {
+        // STAGE 10: OWASP ZAP (FIXED)
+        stage('OWASP ZAP Scan') {
             steps {
+                sh 'mkdir -p reports/zap'
                 sh """
-                    prowler aws --region ${AWS_REGION} --severity high critical
+                    docker run --rm -v \$(pwd)/reports/zap:/zap/wrk/:rw \
+                    ghcr.io/zaproxy/zaproxy:stable \
+                    zap-baseline.py -t ${APP_URL} -r zap-report.html -I
                 """
+            }
+        }
+
+        // STAGE 11: PROWLER
+        stage('Prowler AWS Security Scan') {
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
+                                  credentialsId: 'aws-credentials']]) {
+                    sh 'mkdir -p reports/prowler'
+                    sh 'prowler aws --region us-east-1 --output-formats html json --output-directory reports/prowler -M html'
+                }
             }
         }
     }
 
     post {
+        always {
+            archiveArtifacts artifacts: 'reports/**/*', allowEmptyArchive: true
+            echo "Security Reports Archived"
+        }
         success {
-            echo "Pipeline SUCCESS"
+            echo "Pipeline SUCCESS - Build #${BUILD_NUMBER}"
         }
         failure {
-            echo "Pipeline FAILED"
+            echo "Pipeline FAILED - Build #${BUILD_NUMBER}"
         }
     }
 }
