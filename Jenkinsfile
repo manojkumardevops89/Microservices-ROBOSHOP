@@ -1,17 +1,20 @@
 pipeline {
-<<<<<<< HEAD
     agent any
+
     environment {
-        AWS_REGION   = 'us-east-1'
-        ECR_REGISTRY = credentials('ecr-registry')
-        ECR_REPO     = 'roboshop'
-        IMAGE_TAG    = "${BUILD_NUMBER}"
-        CLUSTER_NAME = 'roboshop-eks-cluster'
-        NAMESPACE    = 'roboshop'
-        // APP_URL is fetched dynamically after K8s deploy — no credential needed
-        APP_URL      = ''
+        PATH             = "/opt/sonar-scanner/bin:${env.PATH}"
+        AWS_REGION       = 'us-east-1'
+        ECR_REGISTRY     = credentials('ecr-registry')
+        ECR_REPO         = 'roboshop'
+        IMAGE_TAG        = "${BUILD_NUMBER}"
+        CLUSTER_NAME     = 'roboshop-eks'
+        NAMESPACE        = 'roboshop'
+        APP_URL          = ''
+        SONAR_AUTH_TOKEN = credentials('sonar-token')
     }
+
     stages {
+
         // 1. CHECKOUT
         stage('Checkout') {
             steps {
@@ -21,198 +24,157 @@ pipeline {
             }
         }
 
-        // 2. BUILD
-        stage('Build') {
-            steps {
-                sh '''
-                    for svc in frontend cart user payment; do
-                        (cd services/$svc && npm install)
-                    done
-                    (cd services/shipping && mvn clean package -q)
-                    for svc in catalogue dispatch; do
-                        (cd services/$svc && go build ./...)
-                    done
-                '''
-            }
-        }
-
-        // 3. SONARQUBE
-        stage('SonarQube Scanner') {
-            steps {
-                withSonarQubeEnv('SonarQube-Server') {
-                    sh '''
-                        sonar-scanner \
-                          -Dsonar.projectKey=roboshop \
-                          -Dsonar.sources=services \
-                          -Dsonar.java.binaries=services/shipping/target/classes
-                    '''
-                }
-                timeout(time: 2, unit: 'MINUTES') {
-                    waitForQualityGate abortPipeline: true
-                }
-            }
-        }
-
-        // 4. DOCKER BUILD
-        stage('Docker Image Build') {
-            steps {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
-                                  credentialsId: 'aws-credentials']]) {
-                    sh """
-                        aws ecr get-login-password --region ${AWS_REGION} \
-                          | docker login --username AWS --password-stdin ${ECR_REGISTRY}
-                        for svc in frontend cart user payment; do
-                            docker build -t ${ECR_REGISTRY}/${ECR_REPO}/\$svc:${IMAGE_TAG} \
-                                -f docker/nodejs.Dockerfile services/\$svc
-                        done
-                        docker build -t ${ECR_REGISTRY}/${ECR_REPO}/shipping:${IMAGE_TAG} \
-                            -f docker/java.Dockerfile services/shipping
-                        for svc in catalogue dispatch; do
-                            docker build -t ${ECR_REGISTRY}/${ECR_REPO}/\$svc:${IMAGE_TAG} \
-                                -f docker/golang.Dockerfile services/\$svc
-                        done
-                    """
-                }
-            }
-        }
-
-        // 5. TRIVY
-        stage('Trivy Scanner') {
-            steps {
-                sh """
-                    for svc in frontend cart user payment shipping catalogue dispatch; do
-                        trivy image --severity CRITICAL,HIGH --exit-code 1 \
-                        ${ECR_REGISTRY}/${ECR_REPO}/\$svc:${IMAGE_TAG}
-                    done
-                """
-            }
-        }
-
-        // 6. PUSH TO ECR
-        stage('ECR Push') {
-            steps {
-                sh """
-                    for svc in frontend cart user payment shipping catalogue dispatch; do
-                        docker push ${ECR_REGISTRY}/${ECR_REPO}/\$svc:${IMAGE_TAG}
-                    done
-                """
-            }
-        }
-
-        // 7. TERRAFORM
-        stage('Terraform') {
+        // 2. TERRAFORM INFRA (EKS, VPC)
+        stage('Terraform Infra') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
                     dir('Terraform') {
-                        sh '''
-                            terraform init
-                            terraform plan
-                            terraform apply -auto-approve
-                        '''
+                        sh 'terraform init'
+                        sh 'terraform validate'
+                        sh 'terraform plan -out=tfplan'
+                        sh 'terraform apply -auto-approve tfplan'
                     }
                 }
             }
         }
 
-        // 8. K8S DEPLOY
-        stage('K8s Deploy') {
+        // 3. BUILD
+        stage('Build Services') {
+            steps {
+                sh 'cd services/cart && npm install'
+                sh 'cd services/catalogue && npm install'
+                sh 'cd services/user && npm install'
+                sh 'cd services/shipping && mvn clean package'
+            }
+        }
+
+        // 4. SONARQUBE
+        stage('SonarQube Scan') {
+            steps {
+                withSonarQubeEnv('SonarQube-Server') {
+                    sh '''
+                        sonar-scanner \
+                        -Dsonar.projectKey=roboshop \
+                        -Dsonar.projectName=roboshop \
+                        -Dsonar.sources=services \
+                        -Dsonar.host.url=http://52.66.83.222:9000 \
+                        -Dsonar.login=$SONAR_AUTH_TOKEN \
+                        -Dsonar.java.binaries=services/shipping/target/classes \
+                        -Dsonar.exclusions=**/*.jar
+                    '''
+                }
+            }
+        }
+
+        // 5. QUALITY GATE
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 15, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: false
+                }
+            }
+        }
+
+        // 6. DOCKER BUILD
+        stage('Docker Build') {
+            steps {
+                sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/cart:${IMAGE_TAG} -f docker/nodejs.Dockerfile services/cart"
+                sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/catalogue:${IMAGE_TAG} -f docker/nodejs.Dockerfile services/catalogue"
+                sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/user:${IMAGE_TAG} -f docker/nodejs.Dockerfile services/user"
+                sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/shipping:${IMAGE_TAG} -f docker/java.Dockerfile services/shipping"
+                sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/frontend:${IMAGE_TAG} -f docker/nginx.Dockerfile services/frontend"
+            }
+        }
+
+        // 7. TRIVY
+        stage('Trivy Scan') {
+            steps {
+                sh 'trivy fs --severity HIGH,CRITICAL services/'
+            }
+        }
+
+        // 8. PUSH TO ECR
+        stage('Push to ECR') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
-                    sh """
-                        aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}
-                        for svc in frontend cart user payment shipping catalogue dispatch; do
-                            helm upgrade --install \$svc helm/\$svc \
-                                --namespace ${NAMESPACE} --create-namespace \
-                                --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/\$svc \
-                                --set image.tag=${IMAGE_TAG} \
-                                --atomic --timeout 5m
-                        done
-                        kubectl apply -f kubernetes/ingress.yaml -n ${NAMESPACE}
-                    """
+                    sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
+                    sh "docker push ${ECR_REGISTRY}/${ECR_REPO}/cart:${IMAGE_TAG}"
+                    sh "docker push ${ECR_REGISTRY}/${ECR_REPO}/catalogue:${IMAGE_TAG}"
+                    sh "docker push ${ECR_REGISTRY}/${ECR_REPO}/user:${IMAGE_TAG}"
+                    sh "docker push ${ECR_REGISTRY}/${ECR_REPO}/shipping:${IMAGE_TAG}"
+                    sh "docker push ${ECR_REGISTRY}/${ECR_REPO}/frontend:${IMAGE_TAG}"
+                }
+            }
+        }
 
-                    // Dynamically fetch LoadBalancer URL after deployment
+        // 9. DEPLOY TO EKS + FETCH ALB
+        stage('Deploy to EKS') {
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
+                                  credentialsId: 'aws-credentials']]) {
+
+                    sh "aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}"
+
+                    sh "helm upgrade --install cart helm/cart --namespace ${NAMESPACE} --create-namespace --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/cart --set image.tag=${IMAGE_TAG}"
+                    sh "helm upgrade --install catalogue helm/catalogue --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/catalogue --set image.tag=${IMAGE_TAG}"
+                    sh "helm upgrade --install user helm/user --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/user --set image.tag=${IMAGE_TAG}"
+                    sh "helm upgrade --install shipping helm/shipping --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/shipping --set image.tag=${IMAGE_TAG}"
+                    sh "helm upgrade --install frontend helm/frontend --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/frontend --set image.tag=${IMAGE_TAG}"
+
                     script {
-                        echo "Waiting for Ingress LoadBalancer URL to be assigned..."
-                        def appUrl = ''
-                        for (int i = 1; i <= 20; i++) {
-                            appUrl = sh(
-                                script: """
-                                    kubectl get ingress -n ${NAMESPACE} \
-                                        -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true
-                                """,
-                                returnStdout: true
-                            ).trim()
+                        echo "Waiting for ALB..."
+                        sleep(120)
 
-                            if (appUrl) {
-                                echo "LoadBalancer URL found: http://${appUrl}"
-                                env.APP_URL = "http://${appUrl}"
-                                break
-                            }
+                        def alb = sh(
+                            script: "kubectl get ingress -n ${NAMESPACE} -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}'",
+                            returnStdout: true
+                        ).trim()
 
-                            if (i == 20) {
-                                echo "WARNING: LoadBalancer URL not assigned after 5 minutes. Skipping OWASP scan."
-                            } else {
-                                echo "Attempt ${i}/20 — URL not ready yet. Retrying in 15 seconds..."
-                                sleep(15)
-                            }
-                        }
+                        env.APP_URL = "http://${alb}"
+                        echo "APP URL: ${env.APP_URL}"
                     }
                 }
             }
         }
 
-        // 9. OWASP ZAP — skipped automatically if APP_URL not available
-        stage('OWASP Scanner') {
+        // 🔥 10. TERRAFORM ROUTE53
+        stage('Terraform Route53') {
             steps {
-                script {
-                    if (!env.APP_URL || env.APP_URL.trim() == '') {
-                        echo "APP_URL is not set. Skipping OWASP ZAP scan."
-                    } else {
-                        echo "Running OWASP ZAP scan against: ${env.APP_URL}"
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
+                                  credentialsId: 'aws-credentials']]) {
+
+                    script {
+                        def alb_dns = env.APP_URL.replace("http://", "")
+
                         sh """
-                            docker run --rm \
-                                -v \$(pwd)/zap-reports:/zap/wrk/:rw \
-                                ghcr.io/zaproxy/zaproxy:stable \
-                                zap-baseline.py -t ${env.APP_URL} -r zap-report.html -I
+                            cd terraform
+                            terraform apply -auto-approve \
+                              -var="alb_dns_name=${alb_dns}"
                         """
                     }
                 }
             }
         }
 
-        // 10. PROWLER
-        stage('Prowler') {
+        // 11. OWASP
+        stage('OWASP ZAP Scan') {
             steps {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
-                                  credentialsId: 'aws-credentials']]) {
-                    sh """
-                        prowler aws --region ${AWS_REGION} \
-                            --services iam s3 eks ec2 \
-                            --severity high critical
-                    """
-                }
+                sh """
+                    docker run --rm \
+                    ghcr.io/zaproxy/zaproxy:stable \
+                    zap-baseline.py -t ${APP_URL} -r zap-report.html -I
+                """
             }
         }
 
-        // 11. MONITORING (PROMETHEUS + GRAFANA)
-        stage('Monitoring - Prometheus & Grafana') {
+        // 12. PROWLER
+        stage('Prowler Scan') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
-                    sh """
-                        aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}
-                        helm repo add prometheus-community https://prometheus-community.github.io/helm-charts 2>/dev/null || true
-                        helm repo update
-                        helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
-                            --namespace monitoring \
-                            --create-namespace \
-                            --wait --timeout 10m
-                        kubectl patch svc monitoring-grafana \
-                            -n monitoring \
-                            -p '{"spec": {"type": "LoadBalancer"}}'
-                    """
+                    sh "prowler aws --region ${AWS_REGION}"
                 }
             }
         }
@@ -220,79 +182,10 @@ pipeline {
 
     post {
         success {
-            echo "Pipeline SUCCESS — Build #${BUILD_NUMBER}"
+            echo "SUCCESS 🚀 - Build #${BUILD_NUMBER}"
         }
         failure {
-            echo "Pipeline FAILED — Build #${BUILD_NUMBER}"
-        }
-        always {
-            script {
-                cleanWs()
-            }
-        }
-    }
-}
-=======
-    agent { label 'AGENT-1' }
-    environment { 
-        PROJECT = 'expense'
-        COMPONENT = 'frontend'
-        appVersion = ''
-        ACC_ID = '315069654700'
-    }
-    options {
-        disableConcurrentBuilds()
-        timeout(time: 30, unit: 'MINUTES')
-    }
-    parameters{
-        booleanParam(name: 'deploy', defaultValue: false, description: 'Toggle this value')
-    }
-    stages {
-        stage('Read Version') {
-            steps {
-               script{
-                 def packageJson = readJSON file: 'package.json'
-                 appVersion = packageJson.version
-                 echo "Version is: $appVersion"
-               }
-            }
-        }
-        
-        stage('Docker Build') {
-            steps {
-               script{
-                withAWS(region: 'us-east-1', credentials: 'aws-creds') {
-                    sh """
-                    aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${ACC_ID}.dkr.ecr.us-east-1.amazonaws.com
-
-                    docker build -t  ${ACC_ID}.dkr.ecr.us-east-1.amazonaws.com/${project}/${component}:${appVersion} .
-
-                    docker push ${ACC_ID}.dkr.ecr.us-east-1.amazonaws.com/${project}/${component}:${appVersion}
-                    """
-                }
-                 
-               }
-            }
-        }
-        stage('Trigger Deploy'){
-            when { 
-                expression { params.deploy }
-            }
-            steps{
-                build job: 'frontend-cd', parameters: [string(name: 'version', value: "${appVersion}")], wait: true
-            }
-        }
-    }
-    post { 
-        always { 
-            echo 'I will always say Hello again!'
-            deleteDir()
-        }
-        failure { 
-            echo 'I will run when pipeline is failed'
-        }
-        success { 
-            echo 'I will run when pipeline is success'
+            echo "FAILED ❌ - Build #${BUILD_NUMBER}"
         }
     }
 }
