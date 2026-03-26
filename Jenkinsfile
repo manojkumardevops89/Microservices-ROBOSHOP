@@ -126,6 +126,7 @@ pipeline {
             sh "chmod 777 ${WORKSPACE}/zap-reports"
             sh """
                 docker run --rm \
+                --user root \
                 -v ${WORKSPACE}/zap-reports:/zap/wrk/:rw \
                 ghcr.io/zaproxy/zaproxy:stable \
                 zap-baseline.py \
