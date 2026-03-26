@@ -2,6 +2,7 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: roboshop-ingress
+  namespace: roboshop
   annotations:
     kubernetes.io/ingress.class: nginx
 spec:
