@@ -120,21 +120,22 @@ pipeline {
             }
         }
         stage('OWASP ZAP Scan') {
-            steps {
-                script {
-                    sh "mkdir -p ${WORKSPACE}/zap-reports"
-                    sh """
-                        docker run --rm \
-                        -v ${WORKSPACE}/zap-reports:/zap/wrk/:rw \
-                        ghcr.io/zaproxy/zaproxy:stable \
-                        zap-baseline.py \
-                        -t ${env.APP_URL} \
-                        -r zap-report.html \
-                        -I
-                    """
-                }
-            }
+    steps {
+        script {
+            sh "mkdir -p ${WORKSPACE}/zap-reports"
+            sh "chmod 777 ${WORKSPACE}/zap-reports"
+            sh """
+                docker run --rm \
+                -v ${WORKSPACE}/zap-reports:/zap/wrk/:rw \
+                ghcr.io/zaproxy/zaproxy:stable \
+                zap-baseline.py \
+                -t ${env.APP_URL} \
+                -r zap-report.html \
+                -I
+            """
         }
+    }
+}
         stage('Prowler Scan') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
