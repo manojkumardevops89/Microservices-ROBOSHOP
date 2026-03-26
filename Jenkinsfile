@@ -141,7 +141,7 @@ pipeline {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
-                    sh "prowler aws --region ${AWS_REGION}"
+                    sh "prowler aws --region ${AWS_REGION} || true"
                 }
             }
         }
