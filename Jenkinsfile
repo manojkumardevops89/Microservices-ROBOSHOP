@@ -1,6 +1,5 @@
 pipeline {
     agent any
-
     environment {
         PATH             = "/opt/sonar-scanner/bin:${env.PATH}"
         AWS_REGION       = 'us-east-1'
@@ -9,13 +8,9 @@ pipeline {
         IMAGE_TAG        = "${BUILD_NUMBER}"
         CLUSTER_NAME     = 'roboshop-eks'
         NAMESPACE        = 'roboshop'
-        APP_URL          = ''
         SONAR_AUTH_TOKEN = credentials('sonar-token')
     }
-
     stages {
-
-        // 1. CHECKOUT
         stage('Checkout') {
             steps {
                 git branch: 'main',
@@ -23,8 +18,6 @@ pipeline {
                     url: 'https://github.com/manojkumardevops89/Microservices-ROBOSHOP.git'
             }
         }
-
-        // 2. TERRAFORM INFRA (EKS, VPC)
         stage('Terraform Infra') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
@@ -38,8 +31,6 @@ pipeline {
                 }
             }
         }
-
-        // 3. BUILD
         stage('Build Services') {
             steps {
                 sh 'cd services/cart && npm install'
@@ -48,8 +39,6 @@ pipeline {
                 sh 'cd services/shipping && mvn clean package'
             }
         }
-
-        // 4. SONARQUBE
         stage('SonarQube Scan') {
             steps {
                 withSonarQubeEnv('SonarQube-Server') {
@@ -66,8 +55,6 @@ pipeline {
                 }
             }
         }
-
-        // 5. QUALITY GATE
         stage('Quality Gate') {
             steps {
                 timeout(time: 15, unit: 'MINUTES') {
@@ -75,8 +62,6 @@ pipeline {
                 }
             }
         }
-
-        // 6. DOCKER BUILD
         stage('Docker Build') {
             steps {
                 sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/cart:${IMAGE_TAG} -f docker/nodejs.Dockerfile services/cart"
@@ -86,15 +71,11 @@ pipeline {
                 sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/frontend:${IMAGE_TAG} -f docker/nginx.Dockerfile services/frontend"
             }
         }
-
-        // 7. TRIVY
         stage('Trivy Scan') {
             steps {
                 sh 'trivy fs --severity HIGH,CRITICAL services/'
             }
         }
-
-        // 8. PUSH TO ECR
         stage('Push to ECR') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
@@ -108,68 +89,52 @@ pipeline {
                 }
             }
         }
-
-        // 9. DEPLOY TO EKS + FETCH ALB
         stage('Deploy to EKS') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
-
                     sh "aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}"
-
                     sh "helm upgrade --install cart helm/cart --namespace ${NAMESPACE} --create-namespace --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/cart --set image.tag=${IMAGE_TAG}"
                     sh "helm upgrade --install catalogue helm/catalogue --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/catalogue --set image.tag=${IMAGE_TAG}"
                     sh "helm upgrade --install user helm/user --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/user --set image.tag=${IMAGE_TAG}"
                     sh "helm upgrade --install shipping helm/shipping --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/shipping --set image.tag=${IMAGE_TAG}"
                     sh "helm upgrade --install frontend helm/frontend --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/frontend --set image.tag=${IMAGE_TAG}"
-
                     script {
-                        echo "Waiting for ALB..."
-                        sleep(120)
-
-                        def alb = sh(
-                            script: "kubectl get ingress -n ${NAMESPACE} -o jsonpath='{.items[0].status.loadBalancer.ingress[0].hostname}'",
-                            returnStdout: true
-                        ).trim()
-
+                        def alb = ''
+                        for (int i = 0; i < 20; i++) {
+                            alb = sh(
+                                script: "kubectl get ingress roboshop-ingress -n roboshop -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'",
+                                returnStdout: true
+                            ).trim()
+                            if (alb && !alb.contains(" ")) {
+                                echo "✅ ALB Ready: ${alb}"
+                                break
+                            }
+                            echo "⏳ Waiting for ALB... attempt ${i+1}/20"
+                            sleep(15)
+                        }
                         env.APP_URL = "http://${alb}"
-                        echo "APP URL: ${env.APP_URL}"
+                        echo "✅ APP_URL = ${env.APP_URL}"
                     }
                 }
             }
         }
-
-        // 🔥 10. TERRAFORM ROUTE53
-        stage('Terraform Route53') {
-            steps {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
-                                  credentialsId: 'aws-credentials']]) {
-
-                    script {
-                        def alb_dns = env.APP_URL.replace("http://", "")
-
-                        sh """
-                            cd terraform
-                            terraform apply -auto-approve \
-                              -var="alb_dns_name=${alb_dns}"
-                        """
-                    }
-                }
-            }
-        }
-
-        // 11. OWASP
         stage('OWASP ZAP Scan') {
             steps {
-                sh """
-                    docker run --rm \
-                    ghcr.io/zaproxy/zaproxy:stable \
-                    zap-baseline.py -t ${APP_URL} -r zap-report.html -I
-                """
+                script {
+                    sh "mkdir -p ${WORKSPACE}/zap-reports"
+                    sh """
+                        docker run --rm \
+                        -v ${WORKSPACE}/zap-reports:/zap/wrk/:rw \
+                        ghcr.io/zaproxy/zaproxy:stable \
+                        zap-baseline.py \
+                        -t ${env.APP_URL} \
+                        -r zap-report.html \
+                        -I
+                    """
+                }
             }
         }
-
-        // 12. PROWLER
         stage('Prowler Scan') {
             steps {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
@@ -179,7 +144,6 @@ pipeline {
             }
         }
     }
-
     post {
         success {
             echo "SUCCESS 🚀 - Build #${BUILD_NUMBER}"
