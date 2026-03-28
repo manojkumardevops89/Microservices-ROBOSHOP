@@ -64,14 +64,14 @@ variable "max_size" {
   default     = 3
 }
 
-# ✅ FIXED DOMAIN
+
 variable "domain_name" {
   description = "Route53 domain for RoboShop"
   type        = string
   default     = "roboshop.manojdevops897.shop"
 }
 
-# ✅ NEW (IMPORTANT)
+
 variable "alb_dns_name" {
   description = "ALB DNS from EKS"
   type        = string
