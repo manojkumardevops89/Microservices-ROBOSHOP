@@ -1,3 +1,0 @@
-deployment:
-  imageURL: rabbitmq
-  imageVersion: 3-management
