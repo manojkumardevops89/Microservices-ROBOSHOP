@@ -1,3 +1,0 @@
-deployment:
-  imageURL: redis
-  imageVersion: 7.0
