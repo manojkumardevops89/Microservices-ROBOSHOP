@@ -64,16 +64,21 @@ variable "max_size" {
   default     = 3
 }
 
-
 variable "domain_name" {
   description = "Route53 domain for RoboShop"
   type        = string
   default     = "roboshop.manojdevops897.shop"
 }
 
-
 variable "alb_dns_name" {
   description = "ALB DNS from EKS"
   type        = string
-  default     = ""   # 
+  default     = ""
+}
+
+
+variable "alb_zone_id" {
+  description = "ALB hosted zone ID us-east-1"
+  type        = string
+  default     = "Z35SXDOTRQ7X7K"
 }
