@@ -2,7 +2,7 @@ pipeline {
     agent any
     environment {
         PATH             = "/opt/sonar-scanner/bin:${env.PATH}"
-        AWS_REGION       = 'ap-south-1'
+        AWS_REGION       = 'us-east-1'
         ECR_REGISTRY     = credentials('ecr-registry')
         ECR_REPO         = 'roboshop'
         IMAGE_TAG        = "${BUILD_NUMBER}"
