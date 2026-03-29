@@ -50,14 +50,14 @@ pipeline {
                         -Dsonar.projectName=roboshop \
                         -Dsonar.sources=services \
                         -Dsonar.java.binaries=services/shipping/target/classes \
-                        '-Dsonar.exclusions=**/*.jar'
+                        '-Dsonar.exclusions=**/*.jar,**/node_modules/**,**/target/**'
                     '''
                 }
             }
         }
         stage('Quality Gate') {
             steps {
-                timeout(time: 15, unit: 'MINUTES') {
+                timeout(time: 5, unit: 'MINUTES') {
                     waitForQualityGate abortPipeline: false
                 }
             }
