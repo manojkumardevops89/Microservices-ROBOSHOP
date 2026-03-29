@@ -2,7 +2,7 @@ pipeline {
     agent any
     environment {
         PATH             = "/opt/sonar-scanner/bin:${env.PATH}"
-        AWS_REGION       = 'us-east-1'
+        AWS_REGION       = 'ap-south-1'
         ECR_REGISTRY     = credentials('ecr-registry')
         ECR_REPO         = 'roboshop'
         IMAGE_TAG        = "${BUILD_NUMBER}"
@@ -37,7 +37,6 @@ pipeline {
                 sh 'cd services/cart && npm install'
                 sh 'cd services/catalogue && npm install'
                 sh 'cd services/user && npm install'
-
                 // Java Service
                 sh 'cd services/shipping && mvn clean package'
             }
@@ -50,10 +49,8 @@ pipeline {
                         -Dsonar.projectKey=roboshop \
                         -Dsonar.projectName=roboshop \
                         -Dsonar.sources=services \
-                        -Dsonar.host.url=http://52.66.83.222:9000 \
-                        -Dsonar.login=$SONAR_AUTH_TOKEN \
                         -Dsonar.java.binaries=services/shipping/target/classes \
-                        -Dsonar.exclusions=**/*.jar
+                        '-Dsonar.exclusions=**/*.jar'
                     '''
                 }
             }
@@ -70,7 +67,6 @@ pipeline {
                 // Database Images
                 sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/mongodb:${IMAGE_TAG} Databses/Mongodb"
                 sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/mysql:${IMAGE_TAG} Databses/MYSQL"
-
                 // Microservice Images
                 sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/cart:${IMAGE_TAG} -f docker/nodejs.Dockerfile services/cart"
                 sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/catalogue:${IMAGE_TAG} -f docker/nodejs.Dockerfile services/catalogue"
@@ -89,11 +85,9 @@ pipeline {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
                     sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
-
                     // Push Database Images
                     sh "docker push ${ECR_REGISTRY}/${ECR_REPO}/mongodb:${IMAGE_TAG}"
                     sh "docker push ${ECR_REGISTRY}/${ECR_REPO}/mysql:${IMAGE_TAG}"
-
                     // Push Microservice Images
                     sh "docker push ${ECR_REGISTRY}/${ECR_REPO}/cart:${IMAGE_TAG}"
                     sh "docker push ${ECR_REGISTRY}/${ECR_REPO}/catalogue:${IMAGE_TAG}"
@@ -108,28 +102,23 @@ pipeline {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
                     sh "aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}"
-
                     // Deploy Databases First
                     sh "helm upgrade --install mongodb Databses/Mongodb/helm --namespace ${NAMESPACE} --create-namespace --set deployment.imageURL=${ECR_REGISTRY}/${ECR_REPO}/mongodb --set deployment.imageVersion=${IMAGE_TAG}"
                     sh "helm upgrade --install mysql Databses/MYSQL/helm --namespace ${NAMESPACE} --set deployment.imageURL=${ECR_REGISTRY}/${ECR_REPO}/mysql --set deployment.imageVersion=${IMAGE_TAG}"
                     sh "helm upgrade --install redis Databses/redis/helm --namespace ${NAMESPACE}"
                     sh "helm upgrade --install rabbitmq Databses/RabbitMQ/helm --namespace ${NAMESPACE}"
-
                     // Wait for Databases Ready
                     sh "kubectl wait --for=condition=ready pod -l app=mongodb -n ${NAMESPACE} --timeout=120s"
                     sh "kubectl wait --for=condition=ready pod -l app=mysql -n ${NAMESPACE} --timeout=120s"
                     sh "kubectl wait --for=condition=ready pod -l app=redis -n ${NAMESPACE} --timeout=120s"
                     sh "kubectl wait --for=condition=ready pod -l app=rabbitmq -n ${NAMESPACE} --timeout=120s"
-
                     // Deploy Microservices
                     sh "helm upgrade --install catalogue helm/catalogue --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/catalogue --set image.tag=${IMAGE_TAG}"
                     sh "helm upgrade --install user helm/user --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/user --set image.tag=${IMAGE_TAG}"
                     sh "helm upgrade --install cart helm/cart --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/cart --set image.tag=${IMAGE_TAG}"
                     sh "helm upgrade --install shipping helm/shipping --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/shipping --set image.tag=${IMAGE_TAG}"
-
                     // Deploy Frontend Last
                     sh "helm upgrade --install frontend helm/frontend --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/frontend --set image.tag=${IMAGE_TAG}"
-
                     script {
                         def alb = ''
                         for (int i = 0; i < 20; i++) {
