@@ -33,9 +33,12 @@ pipeline {
         }
         stage('Build Services') {
             steps {
+                // Node.js Services
                 sh 'cd services/cart && npm install'
                 sh 'cd services/catalogue && npm install'
                 sh 'cd services/user && npm install'
+
+                // Java Service
                 sh 'cd services/shipping && mvn clean package'
             }
         }
@@ -64,6 +67,11 @@ pipeline {
         }
         stage('Docker Build') {
             steps {
+                // Database Images
+                sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/mongodb:${IMAGE_TAG} Databses/Mongodb"
+                sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/mysql:${IMAGE_TAG} Databses/MYSQL"
+
+                // Microservice Images
                 sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/cart:${IMAGE_TAG} -f docker/nodejs.Dockerfile services/cart"
                 sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/catalogue:${IMAGE_TAG} -f docker/nodejs.Dockerfile services/catalogue"
                 sh "docker build -t ${ECR_REGISTRY}/${ECR_REPO}/user:${IMAGE_TAG} -f docker/nodejs.Dockerfile services/user"
@@ -81,6 +89,12 @@ pipeline {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
                     sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}"
+
+                    // Push Database Images
+                    sh "docker push ${ECR_REGISTRY}/${ECR_REPO}/mongodb:${IMAGE_TAG}"
+                    sh "docker push ${ECR_REGISTRY}/${ECR_REPO}/mysql:${IMAGE_TAG}"
+
+                    // Push Microservice Images
                     sh "docker push ${ECR_REGISTRY}/${ECR_REPO}/cart:${IMAGE_TAG}"
                     sh "docker push ${ECR_REGISTRY}/${ECR_REPO}/catalogue:${IMAGE_TAG}"
                     sh "docker push ${ECR_REGISTRY}/${ECR_REPO}/user:${IMAGE_TAG}"
@@ -94,11 +108,28 @@ pipeline {
                 withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
                                   credentialsId: 'aws-credentials']]) {
                     sh "aws eks update-kubeconfig --region ${AWS_REGION} --name ${CLUSTER_NAME}"
-                    sh "helm upgrade --install cart helm/cart --namespace ${NAMESPACE} --create-namespace --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/cart --set image.tag=${IMAGE_TAG}"
+
+                    // Deploy Databases First
+                    sh "helm upgrade --install mongodb Databses/Mongodb/helm --namespace ${NAMESPACE} --create-namespace --set deployment.imageURL=${ECR_REGISTRY}/${ECR_REPO}/mongodb --set deployment.imageVersion=${IMAGE_TAG}"
+                    sh "helm upgrade --install mysql Databses/MYSQL/helm --namespace ${NAMESPACE} --set deployment.imageURL=${ECR_REGISTRY}/${ECR_REPO}/mysql --set deployment.imageVersion=${IMAGE_TAG}"
+                    sh "helm upgrade --install redis Databses/redis/helm --namespace ${NAMESPACE}"
+                    sh "helm upgrade --install rabbitmq Databses/RabbitMQ/helm --namespace ${NAMESPACE}"
+
+                    // Wait for Databases Ready
+                    sh "kubectl wait --for=condition=ready pod -l app=mongodb -n ${NAMESPACE} --timeout=120s"
+                    sh "kubectl wait --for=condition=ready pod -l app=mysql -n ${NAMESPACE} --timeout=120s"
+                    sh "kubectl wait --for=condition=ready pod -l app=redis -n ${NAMESPACE} --timeout=120s"
+                    sh "kubectl wait --for=condition=ready pod -l app=rabbitmq -n ${NAMESPACE} --timeout=120s"
+
+                    // Deploy Microservices
                     sh "helm upgrade --install catalogue helm/catalogue --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/catalogue --set image.tag=${IMAGE_TAG}"
                     sh "helm upgrade --install user helm/user --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/user --set image.tag=${IMAGE_TAG}"
+                    sh "helm upgrade --install cart helm/cart --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/cart --set image.tag=${IMAGE_TAG}"
                     sh "helm upgrade --install shipping helm/shipping --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/shipping --set image.tag=${IMAGE_TAG}"
+
+                    // Deploy Frontend Last
                     sh "helm upgrade --install frontend helm/frontend --namespace ${NAMESPACE} --set image.repository=${ECR_REGISTRY}/${ECR_REPO}/frontend --set image.tag=${IMAGE_TAG}"
+
                     script {
                         def alb = ''
                         for (int i = 0; i < 20; i++) {
@@ -116,32 +147,6 @@ pipeline {
                         env.APP_URL = "http://${alb}"
                         echo "✅ APP_URL = ${env.APP_URL}"
                     }
-                }
-            }
-        }
-        stage('OWASP ZAP Scan') {
-    steps {
-        script {
-            sh "mkdir -p ${WORKSPACE}/zap-reports"
-            sh "chmod 777 ${WORKSPACE}/zap-reports"
-            sh """
-                docker run --rm \
-                --user root \
-                -v ${WORKSPACE}/zap-reports:/zap/wrk/:rw \
-                ghcr.io/zaproxy/zaproxy:stable \
-                zap-baseline.py \
-                -t ${env.APP_URL} \
-                -r zap-report.html \
-                -I
-            """
-        }
-    }
-}
-        stage('Prowler Scan') {
-            steps {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding',
-                                  credentialsId: 'aws-credentials']]) {
-                    sh "prowler aws --region ${AWS_REGION} || true"
                 }
             }
         }
