@@ -106,7 +106,7 @@ pipeline {
                     sh "helm upgrade --install mongodb Databses/Mongodb/helm --namespace ${NAMESPACE} --create-namespace --set deployment.imageURL=${ECR_REGISTRY}/${ECR_REPO}/mongodb --set deployment.imageVersion=${IMAGE_TAG}"
                     sh "helm upgrade --install mysql Databses/MYSQL/helm --namespace ${NAMESPACE} --set deployment.imageURL=${ECR_REGISTRY}/${ECR_REPO}/mysql --set deployment.imageVersion=${IMAGE_TAG}"
                     sh "helm upgrade --install redis Databses/redis/helm --namespace ${NAMESPACE}"
-                    sh "helm upgrade --install rabbitmq Databses/RabbitMQ/helm --namespace ${NAMESPACE}"
+                    sh "helm upgrade --install rabbitmq Databses/rabbitmq/helm --namespace ${NAMESPACE}"
                     // Wait for Databases Ready
                     sh "kubectl wait --for=condition=ready pod -l app=mongodb -n ${NAMESPACE} --timeout=120s"
                     sh "kubectl wait --for=condition=ready pod -l app=mysql -n ${NAMESPACE} --timeout=120s"
