@@ -1,3 +1,4 @@
+#Instead of hardcoding values inside every .tf file, we define them as variables in one place. This makes code reusable, clean, and easy to change.
 variable "region" {
   description = "AWS region"
   type        = string
