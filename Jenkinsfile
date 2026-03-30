@@ -33,10 +33,7 @@ pipeline {
         }
         stage('Build Services') {
             steps {
-                // Node.js Services
-                sh 'cd services/cart && npm install'
-                sh 'cd services/catalogue && npm install'
-                sh 'cd services/user && npm install'
+            
                 // Java Service
                 sh 'cd services/shipping && mvn clean package'
             }
