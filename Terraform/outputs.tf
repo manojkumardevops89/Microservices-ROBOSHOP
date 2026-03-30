@@ -33,3 +33,4 @@ output "private_subnet_ids" {
   ]
   description = "Private Subnet IDs"
 }
+#outputs.tf serves three purposes. First, it displays important resource information on terminal after terraform apply so I don't have to manually search in AWS console. Second, I can directly use these values for next steps like connecting kubectl using cluster name or whitelisting NAT IP in database firewall. Third, when using Terraform modules, outputs allow one module to pass values to another module — like VPC module passing subnet IDs to EKS module."
