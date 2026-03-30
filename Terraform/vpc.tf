@@ -116,3 +116,11 @@ resource "aws_route_table_association" "private_1b" {
   subnet_id      = aws_subnet.private_1b.id
   route_table_id = aws_route_table.private.id
 }
+#In my vpc.tf file, I am setting up the complete network infrastructure on AWS for our Roboshop EKS project using Terraform.
+First, I created a VPC with CIDR block 10.0.0.0/16 which is the main private network where all our resources live.
+Inside that VPC, I created 4 subnets — 2 public and 2 private — one of each in two different Availability Zones. This gives us High Availability, so if one zone goes down, the other is still running.
+Public subnets are for Load Balancers — they face the internet. Private subnets are for EKS worker nodes — they are not directly accessible from internet for security reasons.
+For internet connectivity, I attached an Internet Gateway to the VPC. Public subnets route their traffic directly through the IGW.
+For private subnets, I created a NAT Gateway placed in the public subnet. This allows worker nodes to reach the internet outbound — for example to pull container images or download packages — but blocks any inbound traffic from internet to nodes.
+Finally I created two route tables — one for public subnets pointing to IGW, one for private subnets pointing to NAT Gateway — and associated them with the correct subnets.
+I also added Kubernetes specific tags on subnets so that EKS knows which subnets to use when creating Load Balancers automatically."
