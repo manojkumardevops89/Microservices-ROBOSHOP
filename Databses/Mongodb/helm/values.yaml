@@ -1,3 +1,5 @@
-deployment:
-  imageURL: 400516512948.dkr.ecr.us-east-1.amazonaws.com/roboshop/mongodb
-  imageVersion: 1.0.0
+deployment:                                            # Custom key (usually part of Helm values.yaml)
+
+  imageURL: 400516512948.dkr.ecr.us-east-1.amazonaws.com/roboshop/mongodb   # MongoDB Docker image stored in AWS ECR
+
+  imageVersion: 1.0.0                                 # Image tag/version to be used for deployment
