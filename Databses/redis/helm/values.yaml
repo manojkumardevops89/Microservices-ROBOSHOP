@@ -1,3 +1,5 @@
-deployment:
-  imageURL: redis
-  imageVersion: 7.0
+deployment:                 # Custom key (used in Helm values.yaml or config file)
+
+  imageURL: redis           # Redis image (pulled from Docker Hub by default)
+
+  imageVersion: 7.0         # Image tag/version of Redis
