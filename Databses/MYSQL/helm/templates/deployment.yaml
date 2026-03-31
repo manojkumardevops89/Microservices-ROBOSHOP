@@ -1,32 +1,42 @@
-apiVersion: apps/v1
-kind: Deployment
+apiVersion: apps/v1                     # Specifies API version for Deployment resource
+kind: Deployment                       # Defines this object as a Deployment
+
 metadata:
-  name: mysql
-  namespace: roboshop
+  name: mysql                          # Name of the Deployment
+  namespace: roboshop                  # Namespace where it will be created
   labels:
-    app: mysql
-    project: roboshop
-    tier: db
+    app: mysql                         # Label to identify app
+    project: roboshop                  # Project name
+    tier: db                           # Tier (database layer)
+
 spec:
-  replicas: 1
+  replicas: 1                          # Number of pod replicas (only 1 MySQL pod)
+
   selector:
     matchLabels:
       app: mysql
       project: roboshop
-      tier: db
+      tier: db                         # Selector to match pods managed by this Deployment
+
   template:
     metadata:
       labels:
         app: mysql
         project: roboshop
-        tier: db
+        tier: db                       # Labels applied to pods (must match selector)
+
     spec:
       containers:
-      - name: mysql
-        image: "{{ .Values.deployment.imageURL}}:{{ .Values.deployment.imageVersion}}"
-        imagePullPolicy: Always
+      - name: mysql                    # Container name
+
+        image: "{{ .Values.deployment.imageURL}}:{{ .Values.deployment.imageVersion}}"  
+        # Image pulled dynamically using Helm values (ECR/Docker Hub + version)
+
+        imagePullPolicy: Always        # Always pulls latest image from registry
+
         env:
         - name: MYSQL_ROOT_PASSWORD
-          value: "RoboShop@1"
+          value: "RoboShop@1"          # Sets MySQL root password
+
         - name: MYSQL_DATABASE
-          value: "roboshop"
+          value: "roboshop"            # Creates database 'roboshop' on startup
