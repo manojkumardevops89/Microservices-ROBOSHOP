@@ -1,3 +1,5 @@
-deployment:
-  imageURL: 400516512948.dkr.ecr.us-east-1.amazonaws.com/roboshop/mysql
-  imageVersion: 1.0.0
+deployment:                                           # Custom key (used in Helm values or config file)
+
+  imageURL: 400516512948.dkr.ecr.us-east-1.amazonaws.com/roboshop/mysql   # Docker image stored in AWS ECR
+
+  imageVersion: 1.0.0                                # Image tag/version used for deployment
