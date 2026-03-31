@@ -1,3 +1,5 @@
-deployment:
-  imageURL: rabbitmq
-  imageVersion: 3-management
+deployment:                         # Custom key (used in Helm values or config file)
+
+  imageURL: rabbitmq               # Docker image name (from Docker Hub, not ECR)
+
+  imageVersion: 3-management       # Image tag (RabbitMQ with management UI enabled)
