@@ -6,65 +6,59 @@ on:
       - main
 
 jobs:
-
   build-and-scan:
-
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-    - name: Checkout Code
-      uses: actions/checkout@v4
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
-    - name: Configure AWS Credentials
-      uses: aws-actions/configure-aws-credentials@v4
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: ${{ secrets.AWS_REGION }}
+      - name: SonarQube Scan
+        uses: sonarsource/sonarqube-scan-action@master
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
+            -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
+            -Dsonar.host.url=https://sonarcloud.io
+            -Dsonar.sources=.
 
-        - name: SonarQube Scan
-      uses: sonarsource/sonarqube-scan-action@master
-      env:
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-      with:
-        args: >
-          -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
-          -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
-          -Dsonar.host.url=https://sonarcloud.io
-          -Dsonar.sources=.
+      - name: Build User Service
+        run: docker build -t user-service ./services/user-service
 
-    - name: Build User Service
-      run: |
-        docker build -t user-service ./services/user-service
+      - name: Build Cart Service
+        run: docker build -t cart-service ./services/cart-service
 
-    - name: Build Cart Service
-      run: |
-        docker build -t cart-service ./services/cart-service
+      - name: Build Payment Service
+        run: docker build -t payment-service ./services/payment-service
 
-    - name: Build Payment Service
-      run: |
-        docker build -t payment-service ./services/payment-service
+      - name: Trivy Scan User Service
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: user-service:latest
 
-    - name: Trivy Scan User Service
-      uses: aquasecurity/trivy-action@master
-      with:
-        image-ref: user-service:latest
+      - name: Login to JFrog
+        run: |
+          docker login yourcompany.jfrog.io \
+          -u ${{ secrets.JFROG_USERNAME }} \
+          -p ${{ secrets.JFROG_PASSWORD }}
 
-    - name: Login to JFrog
-      run: |
-        docker login yourcompany.jfrog.io \
-        -u ${{ secrets.JFROG_USERNAME }} \
-        -p ${{ secrets.JFROG_PASSWORD }}
+      - name: Tag Docker Images
+        run: |
+          docker tag user-service yourcompany.jfrog.io/docker/user-service:${{ github.run_number }}
+          docker tag cart-service yourcompany.jfrog.io/docker/cart-service:${{ github.run_number }}
+          docker tag payment-service yourcompany.jfrog.io/docker/payment-service:${{ github.run_number }}
 
-    - name: Tag Docker Images
-      run: |
-        docker tag user-service yourcompany.jfrog.io/docker/user-service:${{ github.run_number }}
-        docker tag cart-service yourcompany.jfrog.io/docker/cart-service:${{ github.run_number }}
-        docker tag payment-service yourcompany.jfrog.io/docker/payment-service:${{ github.run_number }}
-
-    - name: Push Docker Images
-      run: |
-        docker push yourcompany.jfrog.io/docker/user-service:${{ github.run_number }}
-        docker push yourcompany.jfrog.io/docker/cart-service:${{ github.run_number }}
-        docker push yourcompany.jfrog.io/docker/payment-service:${{ github.run_number }}
+      - name: Push Docker Images
+        run: |
+          docker push yourcompany.jfrog.io/docker/user-service:${{ github.run_number }}
+          docker push yourcompany.jfrog.io/docker/cart-service:${{ github.run_number }}
+          docker push yourcompany.jfrog.io/docker/payment-service:${{ github.run_number }}
