@@ -20,16 +20,16 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-       - name: SonarQube Scan
-         uses: sonarsource/sonarqube-scan-action@master
-          env:
+      - name: SonarQube Scan
+        uses: sonarsource/sonarqube-scan-action@master
+        env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
-       args: >
-      -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
-      -Dsonar.host.url=https://sonarcloud.io
-      -Dsonar.sources=.
-      -Dsonar.exclusions=**/*.java
+          args: >
+            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
+            -Dsonar.host.url=https://sonarcloud.io
+            -Dsonar.sources=.
+            -Dsonar.exclusions=**/*.java
 
       - name: Build User Service
         run: docker build -t user-service ./services/user-service
