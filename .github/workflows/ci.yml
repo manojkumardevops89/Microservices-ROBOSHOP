@@ -8,10 +8,12 @@ on:
 jobs:
   build-and-scan:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
+      - name: Debug Directory Structure
+        run: find . -type f -name "Dockerfile"
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -30,8 +32,8 @@ jobs:
             -Dsonar.organization=${{ secrets.SONAR_ORGANIZATION }}
             -Dsonar.host.url=https://sonarcloud.io
             -Dsonar.sources=.
-            -Dsonar.exclusions=**/*.java
 
+      # ── Build ──────────────────────────────────────────────────────────────
       - name: Build User Service
         run: docker build -t user-service ./services/user-service
 
@@ -41,25 +43,55 @@ jobs:
       - name: Build Payment Service
         run: docker build -t payment-service ./services/payment-service
 
+      # ── Trivy Security Scans ───────────────────────────────────────────────
       - name: Trivy Scan User Service
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: user-service:latest
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
 
+      - name: Trivy Scan Cart Service
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: cart-service:latest
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+
+      - name: Trivy Scan Payment Service
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: payment-service:latest
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+
+      # ── JFrog Login ────────────────────────────────────────────────────────
       - name: Login to JFrog
         run: |
           docker login yourcompany.jfrog.io \
-          -u ${{ secrets.JFROG_USERNAME }} \
-          -p ${{ secrets.JFROG_PASSWORD }}
+            -u ${{ secrets.JFROG_USERNAME }} \
+            -p ${{ secrets.JFROG_PASSWORD }}
 
+      # ── Tag & Push ─────────────────────────────────────────────────────────
       - name: Tag Docker Images
         run: |
           docker tag user-service yourcompany.jfrog.io/docker/user-service:${{ github.run_number }}
           docker tag cart-service yourcompany.jfrog.io/docker/cart-service:${{ github.run_number }}
           docker tag payment-service yourcompany.jfrog.io/docker/payment-service:${{ github.run_number }}
 
+          docker tag user-service yourcompany.jfrog.io/docker/user-service:latest
+          docker tag cart-service yourcompany.jfrog.io/docker/cart-service:latest
+          docker tag payment-service yourcompany.jfrog.io/docker/payment-service:latest
+
       - name: Push Docker Images
         run: |
           docker push yourcompany.jfrog.io/docker/user-service:${{ github.run_number }}
           docker push yourcompany.jfrog.io/docker/cart-service:${{ github.run_number }}
           docker push yourcompany.jfrog.io/docker/payment-service:${{ github.run_number }}
+
+          docker push yourcompany.jfrog.io/docker/user-service:latest
+          docker push yourcompany.jfrog.io/docker/cart-service:latest
+          docker push yourcompany.jfrog.io/docker/payment-service:latest
