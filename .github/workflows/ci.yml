@@ -58,7 +58,7 @@ jobs:
 
       # ── Trivy Security Scans ───────────────────────────────────────────────
       - name: Trivy Scan User Service
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: user-service:latest
           format: table
@@ -66,7 +66,7 @@ jobs:
           severity: CRITICAL,HIGH
 
       - name: Trivy Scan Cart Service
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: cart-service:latest
           format: table
@@ -74,7 +74,7 @@ jobs:
           severity: CRITICAL,HIGH
 
       - name: Trivy Scan Catalogue Service
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: catalogue-service:latest
           format: table
@@ -82,7 +82,7 @@ jobs:
           severity: CRITICAL,HIGH
 
       - name: Trivy Scan Shipping Service
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: shipping-service:latest
           format: table
@@ -90,7 +90,7 @@ jobs:
           severity: CRITICAL,HIGH
 
       - name: Trivy Scan Frontend
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: frontend:latest
           format: table
