@@ -123,4 +123,4 @@ resource "aws_route_table_association" "private_1b" {
 #For internet connectivity, I attached an Internet Gateway to the VPC. Public subnets route their traffic directly through the IGW.
 #For private subnets, I created a NAT Gateway placed in the public subnet. This allows worker nodes to reach the internet outbound — for example to pull container images or download packages — but blocks any inbound traffic from internet to nodes.
 #Finally I created two route tables — one for public subnets pointing to IGW, one for private subnets pointing to NAT Gateway — and associated them with the correct subnets.
-#I also added Kubernetes specific tags on subnets so that EKS knows which subnets to use when creating Load Balancers automatically."
+#I also added Kubernetes specific tags on subnets so that EKS knows which subnets to use when creating Load Balancers automatically.
