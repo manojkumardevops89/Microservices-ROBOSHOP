@@ -58,7 +58,7 @@ jobs:
       - name: Build Frontend
         run: docker build -t frontend ./services/frontend
 
-     # ── Trivy Security Scans ───────────────────────────────────────────────
+      # ── Trivy Security Scans ───────────────────────────────────────────────
       - name: Trivy Scan User Service
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -98,39 +98,40 @@ jobs:
           format: table
           exit-code: 0
           severity: CRITICAL,HIGH
+
       # ── JFrog Login ────────────────────────────────────────────────────────
       - name: Login to JFrog
         run: |
-          docker login yourcompany.jfrog.io \
+          docker login ${{ secrets.JFROG_REGISTRY }} \
             -u ${{ secrets.JFROG_USERNAME }} \
             -p ${{ secrets.JFROG_PASSWORD }}
 
       # ── Tag Docker Images ──────────────────────────────────────────────────
       - name: Tag Docker Images
         run: |
-          docker tag user-service yourcompany.jfrog.io/docker/user-service:${{ github.run_number }}
-          docker tag cart-service yourcompany.jfrog.io/docker/cart-service:${{ github.run_number }}
-          docker tag catalogue-service yourcompany.jfrog.io/docker/catalogue-service:${{ github.run_number }}
-          docker tag shipping-service yourcompany.jfrog.io/docker/shipping-service:${{ github.run_number }}
-          docker tag frontend yourcompany.jfrog.io/docker/frontend:${{ github.run_number }}
+          docker tag user-service ${{ secrets.JFROG_REGISTRY }}/docker/user-service:${{ github.run_number }}
+          docker tag cart-service ${{ secrets.JFROG_REGISTRY }}/docker/cart-service:${{ github.run_number }}
+          docker tag catalogue-service ${{ secrets.JFROG_REGISTRY }}/docker/catalogue-service:${{ github.run_number }}
+          docker tag shipping-service ${{ secrets.JFROG_REGISTRY }}/docker/shipping-service:${{ github.run_number }}
+          docker tag frontend ${{ secrets.JFROG_REGISTRY }}/docker/frontend:${{ github.run_number }}
 
-          docker tag user-service yourcompany.jfrog.io/docker/user-service:latest
-          docker tag cart-service yourcompany.jfrog.io/docker/cart-service:latest
-          docker tag catalogue-service yourcompany.jfrog.io/docker/catalogue-service:latest
-          docker tag shipping-service yourcompany.jfrog.io/docker/shipping-service:latest
-          docker tag frontend yourcompany.jfrog.io/docker/frontend:latest
+          docker tag user-service ${{ secrets.JFROG_REGISTRY }}/docker/user-service:latest
+          docker tag cart-service ${{ secrets.JFROG_REGISTRY }}/docker/cart-service:latest
+          docker tag catalogue-service ${{ secrets.JFROG_REGISTRY }}/docker/catalogue-service:latest
+          docker tag shipping-service ${{ secrets.JFROG_REGISTRY }}/docker/shipping-service:latest
+          docker tag frontend ${{ secrets.JFROG_REGISTRY }}/docker/frontend:latest
 
       # ── Push Docker Images ─────────────────────────────────────────────────
       - name: Push Docker Images
         run: |
-          docker push yourcompany.jfrog.io/docker/user-service:${{ github.run_number }}
-          docker push yourcompany.jfrog.io/docker/cart-service:${{ github.run_number }}
-          docker push yourcompany.jfrog.io/docker/catalogue-service:${{ github.run_number }}
-          docker push yourcompany.jfrog.io/docker/shipping-service:${{ github.run_number }}
-          docker push yourcompany.jfrog.io/docker/frontend:${{ github.run_number }}
+          docker push ${{ secrets.JFROG_REGISTRY }}/docker/user-service:${{ github.run_number }}
+          docker push ${{ secrets.JFROG_REGISTRY }}/docker/cart-service:${{ github.run_number }}
+          docker push ${{ secrets.JFROG_REGISTRY }}/docker/catalogue-service:${{ github.run_number }}
+          docker push ${{ secrets.JFROG_REGISTRY }}/docker/shipping-service:${{ github.run_number }}
+          docker push ${{ secrets.JFROG_REGISTRY }}/docker/frontend:${{ github.run_number }}
 
-          docker push yourcompany.jfrog.io/docker/user-service:latest
-          docker push yourcompany.jfrog.io/docker/cart-service:latest
-          docker push yourcompany.jfrog.io/docker/catalogue-service:latest
-          docker push yourcompany.jfrog.io/docker/shipping-service:latest
-          docker push yourcompany.jfrog.io/docker/frontend:latest
+          docker push ${{ secrets.JFROG_REGISTRY }}/docker/user-service:latest
+          docker push ${{ secrets.JFROG_REGISTRY }}/docker/cart-service:latest
+          docker push ${{ secrets.JFROG_REGISTRY }}/docker/catalogue-service:latest
+          docker push ${{ secrets.JFROG_REGISTRY }}/docker/shipping-service:latest
+          docker push ${{ secrets.JFROG_REGISTRY }}/docker/frontend:latest
