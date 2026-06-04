@@ -12,3 +12,7 @@ service:
 env:
   - name: REDIS_HOST
     value: redis
+hpa:
+  minReplicas: 1
+  maxReplicas: 5
+  cpuThreshold: 70
