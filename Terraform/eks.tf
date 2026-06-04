@@ -20,7 +20,7 @@ resource "aws_iam_role_policy_attachment" "eks_cluster_policy" {# Attach permiss
 
 resource "aws_eks_cluster" "main" {
   name     = "roboshop-eks"
-  version  = "1.29"
+  version  = "1.35"
   role_arn = aws_iam_role.eks_cluster.arn
 
   vpc_config {
