@@ -10,3 +10,7 @@ service:
   port: 80
 
 env: []
+hpa:
+  minReplicas: 1
+  maxReplicas: 5
+  cpuThreshold: 70
