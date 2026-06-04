@@ -12,3 +12,7 @@ service:
 env:
   - name: MONGO_HOST
     value: mongodb
+hpa:
+  minReplicas: 1
+  maxReplicas: 5
+  cpuThreshold: 70
