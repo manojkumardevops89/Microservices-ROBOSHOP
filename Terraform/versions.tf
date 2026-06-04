@@ -2,10 +2,13 @@ terraform {
   required_version = ">= 1.3.0"
 
   backend "s3" {
-    bucket = "roboshop-terraform-state"
-    key    = "roboshop/terraform.tfstate"
-    region = "us-east-1"
+    bucket         = "roboshop-terraform-state89"
+    key            = "terraform.tfstate"
+    region         = "us-east-1"
+    encrypt        = true
+    dynamodb_table = "roboshop-terraform-locks"
   }
+
 
   required_providers {
     aws = {
