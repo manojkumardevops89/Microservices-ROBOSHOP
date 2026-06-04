@@ -67,7 +67,7 @@ resource "aws_eks_node_group" "az1a" {
   cluster_name    = aws_eks_cluster.main.name
   node_group_name = "roboshop-nodes-1a"
   node_role_arn   = aws_iam_role.eks_nodes.arn
-  instance_types  = ["t3.medium"]
+  instance_types  = ["m7i-flex.large"]
   subnet_ids      = [aws_subnet.private_1a.id]
 
   scaling_config {
@@ -90,7 +90,7 @@ resource "aws_eks_node_group" "az1b" {
   cluster_name    = aws_eks_cluster.main.name
   node_group_name = "roboshop-nodes-1b"
   node_role_arn   = aws_iam_role.eks_nodes.arn
-  instance_types  = ["t3.medium"]
+  instance_types  = ["m7i-flex.large"]
   subnet_ids      = [aws_subnet.private_1b.id]
 
   scaling_config {
