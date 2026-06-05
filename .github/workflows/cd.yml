@@ -1,4 +1,5 @@
 name: CD-Pipeline
+
 on:
   workflow_run:
     workflows: ["CI-Pipeline"]
@@ -6,7 +7,7 @@ on:
       - completed
 
 jobs:
-  terraform-destroy:
+  terraform-deploy:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     defaults:
@@ -15,42 +16,58 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
+
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
+
       - name: Terraform Init
         run: terraform init
-      - name: Terraform Destroy
-        run: terraform destroy -auto-approve
 
-  terraform-deploy:
-    needs: terraform-destroy        # ← waits for destroy to finish first
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -lock=false
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve -lock=false
+
+  helm-deploy:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: Terraform
+    needs: terraform-deploy
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-      - name: Terraform Init
-        run: terraform init
-      - name: Terraform Validate
-        run: terraform validate
-      - name: Terraform Plan
-        run: terraform plan
-      - name: Terraform Apply
-        run: terraform apply -auto-approve
-        
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --region us-east-1 \
+            --name roboshop-eks
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+
+      - name: Deploy all services
+        run: |
+          for service in cart catalogue frontend shipping user; do
+            helm upgrade --install $service ./helm/$service \
+              --namespace roboshop \
+              --create-namespace \
+              --set image.tag=${{ github.sha }} \
+              --wait
+          done
