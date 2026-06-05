@@ -107,7 +107,17 @@ resource "aws_eks_node_group" "az1b" {
 
   tags = { Name = "roboshop-nodes-1b" }
 }
+# OIDC Provider for IRSA
+data "tls_certificate" "eks" {
+  url = aws_eks_cluster.main.identity[0].oidc[0].issuer
+}
 
+resource "aws_iam_openid_connect_provider" "eks" {
+  client_id_list  = ["sts.amazonaws.com"]
+  thumbprint_list = [data.tls_certificate.eks.certificates[0].sha1_fingerprint]
+  url             = aws_eks_cluster.main.identity[0].oidc[0].issuer
+  depends_on      = [aws_eks_cluster.main]
+}
 
 # 2nd block This block is attaching the AmazonEKSClusterPolicy to the EKS cluster IAM role.
 #When I create an IAM role it is just an empty container with no permissions. So I need to attach a policy to give it actual permissions.
