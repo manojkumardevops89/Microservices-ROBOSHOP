@@ -68,6 +68,6 @@ jobs:
             helm upgrade --install $service ./helm/$service \
               --namespace roboshop \
               --create-namespace \
-              --set image.tag=${{ github.sha }} \
+              --set image.tag=latest \
               --wait
           done
