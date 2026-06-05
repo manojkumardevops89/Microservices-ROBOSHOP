@@ -3,7 +3,7 @@ name: shipping
 replicaCount: 2
 
 image:
-  repository: triallwgji5.jfrog.io/roboshop/shipping
+  repository: triallwgji5.jfrog.io/docker/shipping-service
   tag: latest
 
 service:

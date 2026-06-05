@@ -3,7 +3,7 @@ name: catalogue
 replicaCount: 2
 
 image:
-  repository: triallwgji5.jfrog.io/roboshop/catalogue
+  repository: triallwgji5.jfrog.io/docker/catalogue-service
   tag: latest
 
 service:

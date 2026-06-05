@@ -3,7 +3,7 @@ name: user
 replicaCount: 2
 
 image:
-  repository: triallwgji5.jfrog.io/roboshop/user
+  repository: triallwgji5.jfrog.io/docker/user-service
   tag: latest
 
 service:

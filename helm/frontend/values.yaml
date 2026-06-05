@@ -3,7 +3,7 @@ name: frontend
 replicaCount: 2
 
 image:
-  repository: triallwgji5.jfrog.io/roboshop/frontend
+  repository: triallwgji5.jfrog.io/docker/frontend
   tag: latest
 
 service:
