@@ -3,7 +3,7 @@ name: user
 replicaCount: 2
 
 image:
-  repository: <ECR>/user
+  repository: triallwgji5.jfrog.io/roboshop/user
   tag: latest
 
 service:

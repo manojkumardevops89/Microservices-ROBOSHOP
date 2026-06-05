@@ -3,7 +3,7 @@ name: cart
 replicaCount: 2
 
 image:
-  repository: <ECR>/cart
+  repository: triallwgji5.jfrog.io/roboshop/cart
   tag: latest
 
 service:

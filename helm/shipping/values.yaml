@@ -3,7 +3,7 @@ name: shipping
 replicaCount: 2
 
 image:
-  repository: <ECR>/shipping
+  repository: triallwgji5.jfrog.io/roboshop/shipping
   tag: latest
 
 service:

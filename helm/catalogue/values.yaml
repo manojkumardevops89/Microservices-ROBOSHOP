@@ -3,7 +3,7 @@ name: catalogue
 replicaCount: 2
 
 image:
-  repository: <ECR>/catalogue
+  repository: triallwgji5.jfrog.io/roboshop/catalogue
   tag: latest
 
 service:
