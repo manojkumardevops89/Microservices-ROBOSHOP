@@ -1,15 +1,12 @@
 terraform {
   required_version = ">= 1.3.0"
-
   backend "s3" {
-  bucket       = "roboshop-terraform-state89"
-  key          = "terraform.tfstate"
-  region       = "us-east-1"
-  encrypt      = true
-  use_lockfile = true
-}
-
-
+    bucket       = "roboshop-terraform-state89"
+    key          = "terraform.tfstate"
+    region       = "us-east-1"
+    encrypt      = true
+    use_lockfile = true
+  }
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -22,6 +19,10 @@ terraform {
     helm = {
       source  = "hashicorp/helm"
       version = "~> 2.11"
+    }
+    tls = {
+      source  = "hashicorp/tls"
+      version = "~> 4.0"
     }
   }
 }
