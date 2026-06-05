@@ -40,3 +40,5 @@ spec:
 
         - name: MYSQL_DATABASE
           value: "roboshop"            # Creates database 'roboshop' on startup
+      imagePullSecrets:
+      - name: jfrog-secret

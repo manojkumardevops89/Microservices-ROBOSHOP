@@ -25,3 +25,5 @@ spec:
       - name: mongodb
         image: "{{ .Values.deployment.imageURL}}:{{ .Values.deployment.imageVersion}}"
         imagePullPolicy: Always
+      imagePullSecrets:
+      - name: jfrog-secret

@@ -12,7 +12,7 @@ service:
 env:
   - name: MYSQL_HOST
     value: mysql
- hpa:
+hpa:
   minReplicas: 1
   maxReplicas: 5
   cpuThreshold: 70
