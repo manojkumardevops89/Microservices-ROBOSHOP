@@ -1,14 +1,12 @@
 name: cart
-
 replicaCount: 2
-
 image:
   repository: triallwgji5.jfrog.io/docker/cart-service
   tag: latest
-
+imagePullSecrets:
+  - name: jfrog-secret
 service:
   port: 8080
-
 env:
   - name: REDIS_HOST
     value: redis
