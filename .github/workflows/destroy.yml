@@ -1,9 +1,11 @@
-name: Destroy-Pipeline
+name: Destroy-Infrastructure
+
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # Manual trigger only - won't run automatically
 
 jobs:
-  destroy-helm:
+
+  helm-destroy:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -22,27 +24,19 @@ jobs:
             --region us-east-1 \
             --name roboshop-eks
 
-      - name: Install Helm
-        uses: azure/setup-helm@v3
-
       - name: Uninstall Helm Releases
         run: |
-          helm uninstall frontend catalogue user cart shipping mongodb mysql redis rabbitmq \
-            -n roboshop --ignore-not-found
+          for service in frontend shipping user catalogue cart; do
+            helm uninstall $service --namespace roboshop --ignore-not-found
+          done
 
       - name: Delete Namespace
         run: |
           kubectl delete namespace roboshop --ignore-not-found
 
-      - name: Delete ACM Certificate
-        run: |
-          aws acm delete-certificate \
-            --certificate-arn arn:aws:acm:us-east-1:987078319369:certificate/4a873a87-0db0-4e84-a1d0-b75076a2a9f8 \
-            --region us-east-1
-
-  destroy-terraform:
+  terraform-destroy:
     runs-on: ubuntu-latest
-    needs: destroy-helm
+    needs: helm-destroy        # Wait for Helm cleanup first
     defaults:
       run:
         working-directory: Terraform
